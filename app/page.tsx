@@ -1156,7 +1156,12 @@ function StockCheckPage({
           const color = (colors ?? []).find((item) => item.color_code === code);
           const stockRow = (inventory ?? []).find((item) => item.color_id === color?.id);
           return { code, colour: color?.hex_code ?? "#cccccc", need, stock: Number(stockRow?.quantity ?? 0) };
-        }).sort((a, b) => compareCodes(a.code, b.code));
+        }).sort((a, b) => {
+          // Colours that are short on stock come first, then natural code order.
+          const aShort = a.stock < a.need ? 0 : 1;
+          const bShort = b.stock < b.need ? 0 : 1;
+          return aShort - bShort || compareCodes(a.code, b.code);
+        });
         if (!cancelled) setStockRows(result);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Could not check stock.");

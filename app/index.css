@@ -3042,6 +3042,7 @@ footer {
   gap: 10px;
   border-bottom: 1px solid var(--line);
   padding-bottom: 13px;
+  margin-bottom: 13px;
 }
 
 .inventory-toolbar>span {
@@ -3176,6 +3177,7 @@ footer {
   border: 1px solid rgba(50, 50, 45, 0.08);
   border-radius: 50%;
   box-shadow: inset 0 1px rgba(255, 255, 255, 0.45);
+  margin: 0 auto;
 }
 
 .colour-row input {
@@ -3604,20 +3606,25 @@ footer {
 .stock-row {
   display: grid;
   min-height: 52px;
-  grid-template-columns: 50px 30px 1fr 1fr 70px;
+  grid-template-columns: 50px 30px 1fr 1fr 100px;
   align-items: center;
   border-top: 1px solid var(--line-soft);
   padding: 0 8px;
   font-size: 14px;
 }
 
+.stock-row > strong {
+  text-align: center;
+}
+
 .stock-row>span {
   color: var(--muted);
+  text-align: center;
 }
 
 .stock-row>strong:last-child {
   color: var(--green);
-  text-align: right;
+  text-align: center;
 }
 
 .stock-row--short {
@@ -4461,7 +4468,7 @@ footer {
   }
 
   .stock-row {
-    grid-template-columns: 34px 20px minmax(70px, 1fr) minmax(70px, 1fr) 54px;
+    grid-template-columns: 50px 30px 1fr 1fr 100px;
     gap: 5px;
     min-height: 64px;
     padding: 10px 8px;
@@ -4471,10 +4478,6 @@ footer {
   .stock-row>span:nth-child(4),
   .stock-row>strong:last-child {
     grid-column: auto;
-  }
-
-  .stock-row>strong:last-child {
-    text-align: right;
   }
 
   .recipe-editor-head,
