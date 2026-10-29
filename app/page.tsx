@@ -833,7 +833,7 @@ function ProjectDetailPage({
   onComplete: () => void
   onStart: () => void
   onUpdateRecipe: (recipe: RecipeRow[]) => void
-  onUpdateDetails: (name: string, category: string) => void
+  onUpdateDetails: (name: string, category: string, image: string) => void
 }) {
   const [recipe, setRecipe] = useState<RecipeRow[]>(project.recipe ?? [])
   const [availablePalette, setAvailablePalette] = useState<RecipeRow[]>([])
@@ -870,11 +870,23 @@ function ProjectDetailPage({
   const [isEditingDetails, setIsEditingDetails] = useState(false)
   const [projectName, setProjectName] = useState(project.name)
   const [projectCategory, setProjectCategory] = useState(project.category)
+  const [projectImage, setProjectImage] = useState(project.image ?? "")
   const [deleteRecipeIndex, setDeleteRecipeIndex] = useState<number | null>(
     null,
   )
 
   const saveTimer = useRef<number | undefined>(undefined)
+
+  // While editing, show the newly picked image straight away; otherwise show the saved one.
+  const displayImage = isEditingDetails ? projectImage : project.image
+
+  function uploadImage(file?: File) {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => setProjectImage(String(reader.result))
+    reader.onerror = () => window.alert("Could not read the selected image.")
+    reader.readAsDataURL(file)
+  }
 
   function saveRecipe(nextRecipe: RecipeRow[]) {
     setRecipe(nextRecipe)
@@ -907,6 +919,18 @@ function ProjectDetailPage({
                   {availableCategories.map((item) => <option key={item}>{item}</option>)}
                 </select>
               </label>
+              <label className="upload-zone">
+                <input
+                  accept="image/*"
+                  onChange={(event) => uploadImage(event.target.files?.[0])}
+                  type="file"
+                />
+                <span className="upload-icon">
+                  <Icon name="plus" />
+                </span>
+                <strong>{projectImage ? "Replace image" : "Add image"}</strong>
+                <small>PNG, JPG or WebP.</small>
+              </label>
             </div>
           ) : (
             <>
@@ -920,7 +944,7 @@ function ProjectDetailPage({
             className={isEditingDetails ? "primary-button" : "outline-button"}
             onClick={() => {
               if (isEditingDetails && projectName.trim())
-                onUpdateDetails(projectName.trim(), projectCategory)
+                onUpdateDetails(projectName.trim(), projectCategory, projectImage)
               setIsEditingDetails((current) => !current)
             }}
           >
@@ -1081,8 +1105,8 @@ function ProjectDetailPage({
         </div>
         <aside className="detail-preview">
           <div className={`preview-art art-panel--${project.pattern}`}>
-            {project.image ? (
-              <img alt={project.name} src={project.image} />
+            {displayImage ? (
+              <img alt={project.name} src={displayImage} />
             ) : (
               <div className="project-image-placeholder" aria-label="No project image uploaded">
                 <Icon name="palette" size={28} />
@@ -1280,7 +1304,8 @@ function App() {
 
 
   useEffect(() => {
-    loadProjects();
+    // true = also pick the default status tab (first load / refresh only)
+    loadProjects(true);
   }, []);
   const filtered = useMemo(
     () =>
@@ -1472,7 +1497,7 @@ function App() {
     }
   }
 
-  async function loadProjects() {
+  async function loadProjects(applyDefaultTab = false) {
     setProjectsLoading(true);
     setProjectsError(null);
     const { data: projectRows, error: projectError } = await supabase
@@ -1558,6 +1583,14 @@ function App() {
       };
     });
     setProjects(mappedProjects);
+
+    // On first load / refresh: open the On-going tab if there is any ongoing project,
+    // otherwise the Not started tab, otherwise fall back to All projects.
+    if (applyDefaultTab) {
+      const hasOngoing = mappedProjects.some((p) => p.status === "On-going");
+      const hasNotStarted = mappedProjects.some((p) => p.status === "Not started");
+      setStatusFilter(hasOngoing ? "On-going" : hasNotStarted ? "Not started" : "All projects");
+    }
 
     if (mappedProjects.length > 0) {
       setActiveProject(mappedProjects[0]);
@@ -1895,16 +1928,18 @@ function App() {
             }}
             onComplete={completeProject}
             onStart={() => { void updateProjectStatus("On-going"); }}
-            onUpdateDetails={async (name, category) => {
+            onUpdateDetails={async (name, category, image) => {
               if (!activeProject.id) return;
               try {
                 const categoryId = await getOrCreateCategoryId(category);
                 const { error } = await supabase.from("project")
-                  .update({ name, category_id: categoryId }).eq("id", activeProject.id);
+                  .update({ name, category_id: categoryId, image_url: image || null })
+                  .eq("id", activeProject.id);
                 if (error) throw error;
+                const nextImage = image || undefined;
                 setProjects((current) => current.map((project) =>
-                  project.id === activeProject.id ? { ...project, name, category } : project));
-                setActiveProject((project) => ({ ...project, name, category }));
+                  project.id === activeProject.id ? { ...project, name, category, image: nextImage } : project));
+                setActiveProject((project) => ({ ...project, name, category, image: nextImage }));
               } catch (err) {
                 window.alert(err instanceof Error ? err.message : "Could not update project details.");
               }
