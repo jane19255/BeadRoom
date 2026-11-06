@@ -4858,3 +4858,144 @@ footer {
     }
   }
 }
+/* ---------- Loading overlay, spinner and toasts ---------- */
+@keyframes bead-spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: bead-spin 0.7s linear infinite;
+  vertical-align: -2px;
+}
+
+.spinner--lg {
+  width: 40px;
+  height: 40px;
+  border-width: 4px;
+  border-color: var(--green-soft);
+  border-top-color: var(--green);
+}
+
+.loading-overlay {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(29, 34, 29, 0.42);
+  backdrop-filter: blur(3px);
+}
+
+.loading-overlay__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  min-width: 220px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 24px 80px rgba(27, 31, 26, 0.22);
+  padding: 28px 32px;
+}
+
+.loading-overlay__card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.toaster {
+  position: fixed;
+  z-index: 70;
+  right: 20px;
+  bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(340px, calc(100vw - 40px));
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgba(27, 31, 26, 0.16);
+  padding: 11px 12px;
+  color: var(--ink);
+  pointer-events: auto;
+  animation: toast-in 0.18s ease-out;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+
+.toast--success { border-left-color: var(--green); }
+.toast--error { border-left-color: #a65339; }
+.toast--loading { border-left-color: var(--faint); }
+
+.toast__icon {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  color: white;
+}
+
+.toast--success .toast__icon { background: var(--green); }
+.toast--error .toast__icon { background: #a65339; }
+.toast--loading .toast__icon { color: var(--muted); }
+
+.toast__body { flex: 1; min-width: 0; }
+.toast__body strong { display: block; font-size: 13px; }
+.toast__body p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.toast__close {
+  border: 0;
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+/* Small "Saving… / Saved" status next to the recipe total */
+.save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.save-status--saved { color: var(--green); }
+.save-status--error { color: #a65339; }
+
+.colour-row--saving input { opacity: 0.6; }
+
+button:disabled .spinner { opacity: 0.9; }
