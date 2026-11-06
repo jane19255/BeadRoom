@@ -10,6 +10,7 @@ import { useProjects } from "@/components/projects/projects-provider"
 import { RecipeImport } from "@/components/projects/recipe-import"
 import { keyOf, splitCode } from "@/lib/beads"
 import { getCategoryNames, getPalette } from "@/lib/supabase/data"
+import { getPattern } from "@/lib/pattern/store"
 import type { Project, RecipeRow } from "@/lib/types"
 
 export function ProjectDetail({ project }: { project: Project }) {
@@ -22,6 +23,22 @@ export function ProjectDetail({ project }: { project: Project }) {
   const onUpdateDetails = (name: string, category: string, image: string) =>
     updateProjectDetails(project, name, category, image)
   const [statusBusy, setStatusBusy] = useState(false)
+  // Saved bead pattern (if any): size and progress for the "Bead pattern" card.
+  const [patternInfo, setPatternInfo] = useState<{ cols: number; rows: number; placed: number; beads: number } | null | undefined>(undefined)
+  useEffect(() => {
+    if (!project.id) return
+    let cancelled = false
+    getPattern(project.id)
+      .then((p) => {
+        if (cancelled) return
+        if (!p) { setPatternInfo(null); return }
+        const beads = p.cells.filter((c) => c !== "").length // "" = empty cell, no bead
+        const placed = p.cells.filter((c, i) => c !== "" && p.done[i] === "1").length
+        setPatternInfo({ cols: p.cols, rows: p.rows, placed, beads })
+      })
+      .catch(() => { if (!cancelled) setPatternInfo(null) })
+    return () => { cancelled = true }
+  }, [project.id])
   async function runStatusAction(action: () => Promise<unknown>) {
     setStatusBusy(true)
     await action()
@@ -352,6 +369,27 @@ export function ProjectDetail({ project }: { project: Project }) {
             <p>
               {project.status} · {project.beads} beads
             </p>
+          </div>
+          <div className="pattern-card">
+            <div>
+              <strong>Bead pattern</strong>
+              <p>
+                {patternInfo === undefined
+                  ? "Checking…"
+                  : patternInfo
+                    ? `${patternInfo.cols} × ${patternInfo.rows} · ${Math.round((patternInfo.placed / Math.max(1, patternInfo.beads)) * 100)}% placed`
+                    : "Import a screenshot to follow the grid while you bead."}
+              </p>
+            </div>
+            {patternInfo ? (
+              <Link className="primary-button" href={`/projects/${project.id}/pattern`}>
+                <Icon name="grid" /> Open bead mode
+              </Link>
+            ) : (
+              <Link className="outline-button" href={`/projects/${project.id}/pattern/import`}>
+                <Icon name="plus" /> Import pattern
+              </Link>
+            )}
           </div>
           {project.status === "Not started" && (
             <button

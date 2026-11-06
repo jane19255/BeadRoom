@@ -76,7 +76,11 @@ export async function getProjects(): Promise<{ projects: Project[]; categories: 
     { data: recipeRows, error: recipeError },
     { data: colorRows, error: colorError },
   ] = await Promise.all([
-    supabase.from("project").select("*").order("created_at", { ascending: false }),
+    // Newest first. Projects with no created_at go last (Postgres puts empty values FIRST
+    // when sorting newest-first), and id breaks ties between same-time projects.
+    supabase.from("project").select("*")
+      .order("created_at", { ascending: false, nullsFirst: false })
+      .order("id", { ascending: false }),
     supabase.from("category").select("*"),
     fetchAllProjectColors(),
     supabase.from("color").select("id, color_code, hex_code"),
