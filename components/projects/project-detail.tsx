@@ -17,10 +17,16 @@ export function ProjectDetail({ project }: { project: Project }) {
   const router = useRouter()
   const {
     setSelectedKeys, updateProjectStatus, completeProject,
-    updateProjectDetails, updateProjectRecipe,
+    updateProjectDetails, updateProjectRecipe, loadProjectImage,
   } = useProjects()
+  // The full picture isn't part of the project list (too big); fetch it when the project opens.
+  useEffect(() => {
+    if (project.hasImage && !project.image) {
+      loadProjectImage(project).catch((err) => toast.error("Couldn't load the picture", { description: errorMessage(err) }))
+    }
+  }, [project.id, project.hasImage, project.image]) // eslint-disable-line react-hooks/exhaustive-deps
   const onUpdateRecipe = (recipe: RecipeRow[]) => updateProjectRecipe(project, recipe)
-  const onUpdateDetails = (name: string, category: string, image: string) =>
+  const onUpdateDetails = (name: string, category: string, image?: string) =>
     updateProjectDetails(project, name, category, image)
   const [statusBusy, setStatusBusy] = useState(false)
   // Saved bead pattern (if any): size and progress for the "Bead pattern" card.
@@ -65,6 +71,9 @@ export function ProjectDetail({ project }: { project: Project }) {
   const [projectName, setProjectName] = useState(project.name)
   const [projectCategory, setProjectCategory] = useState(project.category)
   const [projectImage, setProjectImage] = useState(project.image ?? "")
+  // Only send the picture when it was actually changed, so saving never wipes a picture
+  // that hadn't finished loading.
+  const [imageChanged, setImageChanged] = useState(false)
   const [deleteRecipeIndex, setDeleteRecipeIndex] = useState<number | null>(
     null,
   )
@@ -79,12 +88,12 @@ export function ProjectDetail({ project }: { project: Project }) {
   useUnsavedChangesWarning(recipeStatus === "pending" || recipeStatus === "saving" || recipeStatus === "error" || savingDetails)
 
   // While editing, show the newly picked image straight away; otherwise show the saved one.
-  const displayImage = isEditingDetails ? projectImage : project.image
+  const displayImage = isEditingDetails && imageChanged ? projectImage : (project.image ?? project.thumb)
 
   function uploadImage(file?: File) {
     if (!file) return
     const reader = new FileReader()
-    reader.onload = () => setProjectImage(String(reader.result))
+    reader.onload = () => { setProjectImage(String(reader.result)); setImageChanged(true) }
     reader.onerror = () => toast.error("Could not read the selected image.")
     reader.readAsDataURL(file)
   }
@@ -108,7 +117,8 @@ export function ProjectDetail({ project }: { project: Project }) {
       return
     }
     setSavingDetails(true)
-    const ok = await onUpdateDetails(projectName.trim(), projectCategory, projectImage)
+    const ok = await onUpdateDetails(projectName.trim(), projectCategory, imageChanged ? projectImage : undefined)
+    if (ok) setImageChanged(false)
     setSavingDetails(false)
     if (ok) setIsEditingDetails(false) // on failure, stay in edit mode so nothing typed is lost
   }
@@ -118,7 +128,7 @@ export function ProjectDetail({ project }: { project: Project }) {
       <Link className="back-button" href="/">
         ←   All projects
       </Link>
-      <section className="page-heading detail-heading">
+      <section className={`page-heading detail-heading ${isEditingDetails ? "detail-heading--editing" : ""}`}>
         <div>
           {isEditingDetails ? (
             <div className="detail-edit-fields">
@@ -147,7 +157,7 @@ export function ProjectDetail({ project }: { project: Project }) {
                 <span className="upload-icon">
                   <Icon name="plus" />
                 </span>
-                <strong>{projectImage ? "Replace image" : "Add image"}</strong>
+                <strong>{projectImage || project.hasImage ? "Replace image" : "Add image"}</strong>
                 <small>PNG, JPG or WebP.</small>
               </label>
             </div>
@@ -167,7 +177,7 @@ export function ProjectDetail({ project }: { project: Project }) {
                 onClick={() => {
                   setProjectName(project.name)
                   setProjectCategory(project.category)
-                  setProjectImage(project.image ?? "")
+                  setProjectImage(project.image ?? ""); setImageChanged(false)
                   setIsEditingDetails(false)
                 }}
               >
@@ -183,7 +193,7 @@ export function ProjectDetail({ project }: { project: Project }) {
               onClick={() => {
                 setProjectName(project.name)
                 setProjectCategory(project.category)
-                setProjectImage(project.image ?? "")
+                setProjectImage(project.image ?? ""); setImageChanged(false)
                 setIsEditingDetails(true)
               }}
             >

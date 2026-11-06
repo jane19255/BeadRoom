@@ -45,7 +45,7 @@ export function RecipeImport({
     }
     const { rows, unknown, invalid } = parseRecipeText(text, palette)
     if (!rows.length) {
-      setMessage("No colours could be filled. Use the format D4;836,C7;229")
+      setMessage("No colours could be filled. Paste colour codes with their counts, e.g. C28 877 A25 467 (any layout works).")
       setIsError(true)
       return
     }
@@ -64,8 +64,8 @@ export function RecipeImport({
       <textarea
         aria-label="Colour codes and counts"
         onChange={(event) => setText(event.target.value)}
-        placeholder="D4;836,C7;229,H2;215,C21;203"
-        rows={2}
+        placeholder={"Paste codes and counts in any layout, e.g.\nC28 877  A25 467  C7 303\nor D4;836,C7;229"}
+        rows={3}
         style={{
           width: "100%",
           padding: "10px 12px",
@@ -82,7 +82,8 @@ export function RecipeImport({
           Fill recipe
         </button>
         <span style={{ fontSize: 13, opacity: 0.7 }}>
-          Format: code;amount, separated by commas. You can edit everything below afterwards.
+          Tip: copy the colour list straight from the pattern picture (on iPhone/iPad: press and hold the text
+          in Photos, Select All, Copy; on Android: Google Lens, Text) and paste it here. You can edit everything below afterwards.
         </span>
       </div>
       {message && (

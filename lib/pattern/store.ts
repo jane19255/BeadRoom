@@ -14,6 +14,8 @@ export type StoredPattern = {
   /** Cells before the first guide block; null = automatic. */
   guideColOffset: number | null
   guideRowOffset: number | null
+  /** Grid line colour (hex); null = default dark. */
+  guideColor: string | null
 }
 
 /** Spare cells split between both edges, e.g. 52 cells in blocks of 5 → 1 + 5×10 + 1. */
@@ -36,6 +38,7 @@ function fromRow(row: Record<string, unknown>): StoredPattern {
     guideSize: row.guide_size == null ? 5 : Number(row.guide_size),
     guideColOffset: row.guide_col_offset == null ? null : Number(row.guide_col_offset),
     guideRowOffset: row.guide_row_offset == null ? null : Number(row.guide_row_offset),
+    guideColor: typeof row.guide_color === "string" && row.guide_color ? row.guide_color : null,
   }
 }
 
@@ -89,11 +92,11 @@ export async function saveProgress(projectId: number, done: string, currentRow: 
   if (!data) throw new Error(RLS_HINT)
 }
 
-/** Saves the guide-line layout (null offsets = automatic). */
-export async function saveGuide(projectId: number, size: number, colOffset: number | null, rowOffset: number | null): Promise<void> {
+/** Saves the grid-line settings (null offsets = automatic, null colour = default). */
+export async function saveGuide(projectId: number, size: number, colOffset: number | null, rowOffset: number | null, color: string | null): Promise<void> {
   const { data, error } = await supabase
     .from("project_pattern")
-    .update({ guide_size: size, guide_col_offset: colOffset, guide_row_offset: rowOffset, updated_at: new Date().toISOString() })
+    .update({ guide_size: size, guide_col_offset: colOffset, guide_row_offset: rowOffset, guide_color: color, updated_at: new Date().toISOString() })
     .eq("project_id", projectId)
     .select("project_id")
     .maybeSingle()

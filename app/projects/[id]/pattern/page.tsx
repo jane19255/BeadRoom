@@ -31,6 +31,16 @@ function useWakeLock(active: boolean) {
   }, [active])
 }
 
+/** Grid line colours: dark (default) for light patterns, light/bright ones for dark patterns. */
+const LINE_COLOURS: { name: string; hex: string | null }[] = [
+  { name: "Dark", hex: null },
+  { name: "White", hex: "#ffffff" },
+  { name: "Grey", hex: "#9a9f97" },
+  { name: "Red", hex: "#ff3b30" },
+  { name: "Yellow", hex: "#ffd60a" },
+  { name: "Cyan", hex: "#32d1ff" },
+]
+
 export default function BeadModePage() {
   const params = useParams<{ id: string }>()
   const { projects, loading: projectsLoading } = useProjects()
@@ -52,6 +62,7 @@ export default function BeadModePage() {
   const [guideSize, setGuideSize] = useState(5)
   const [guideCol, setGuideCol] = useState<number | null>(null)
   const [guideRow, setGuideRow] = useState<number | null>(null)
+  const [guideColor, setGuideColor] = useState<string | null>(null)
   const [showGuide, setShowGuide] = useState(false)
 
   useEffect(() => {
@@ -67,6 +78,7 @@ export default function BeadModePage() {
         setGuideSize(stored.guideSize)
         setGuideCol(stored.guideColOffset)
         setGuideRow(stored.guideRowOffset)
+        setGuideColor(stored.guideColor)
         setLoadState("ready")
       })
       .catch((err) => { if (!cancelled) { setLoadError(errorMessage(err)); setLoadState("error") } })
@@ -119,11 +131,14 @@ export default function BeadModePage() {
   useUnsavedChangesWarning(saveState === "pending" || saveState === "saving" || saveState === "error")
 
   const guideTimer = useRef<number | undefined>(undefined)
-  function updateGuide(size: number, col: number | null, row: number | null) {
-    setGuideSize(size); setGuideCol(col); setGuideRow(row)
+  type GuideSettings = { size: number; col: number | null; row: number | null; color: string | null }
+  function updateGuide(change: Partial<GuideSettings>) {
+    const next: GuideSettings = { size: guideSize, col: guideCol, row: guideRow, color: guideColor, ...change }
+    setGuideSize(next.size); setGuideCol(next.col); setGuideRow(next.row); setGuideColor(next.color)
     window.clearTimeout(guideTimer.current)
     guideTimer.current = window.setTimeout(() => {
-      saveGuide(projectId, size, col, row).catch((err) => toast.error("Couldn't save grid lines", { description: errorMessage(err) }))
+      saveGuide(projectId, next.size, next.col, next.row, next.color)
+        .catch((err) => toast.error("Couldn't save grid lines", { description: errorMessage(err) }))
     }, 600)
   }
 
@@ -164,6 +179,7 @@ export default function BeadModePage() {
     size: guideSize,
     col: guideCol ?? autoGuideOffset(cols, guideSize),
     row: guideRow ?? autoGuideOffset(rows, guideSize),
+    color: guideColor,
   }
   const describe = (n: number, offset: number) => {
     if (!guideSize) return `${n}`
@@ -223,7 +239,7 @@ export default function BeadModePage() {
             <div className="guide-panel__line">
               <span>Thick lines every</span>
               {[5, 10, 0].map((n) => (
-                <button key={n} className={guideSize === n ? "chip chip--on" : "chip"} onClick={() => updateGuide(n, guideCol, guideRow)} type="button">
+                <button key={n} className={guideSize === n ? "chip chip--on" : "chip"} onClick={() => updateGuide({ size: n })} type="button">
                   {n ? `${n}` : "Off"}
                 </button>
               ))}
@@ -231,7 +247,7 @@ export default function BeadModePage() {
             {guideSize > 0 && (["col", "row"] as const).map((axis) => {
               const value = axis === "col" ? guide.col : guide.row
               const isAuto = (axis === "col" ? guideCol : guideRow) === null
-              const set = (v: number | null) => (axis === "col" ? updateGuide(guideSize, v, guideRow) : updateGuide(guideSize, guideCol, v))
+              const set = (v: number | null) => updateGuide(axis === "col" ? { col: v } : { row: v })
               return (
                 <div className="guide-panel__line" key={axis}>
                   <span>{axis === "col" ? "Columns" : "Rows"}: {describe(axis === "col" ? cols : rows, value)}</span>
@@ -241,6 +257,28 @@ export default function BeadModePage() {
                 </div>
               )
             })}
+            <div className="guide-panel__line">
+              <span>Line colour</span>
+              {LINE_COLOURS.map(({ name, hex }) => (
+                <button
+                  key={name}
+                  aria-label={`${name} lines`}
+                  title={name}
+                  className={`line-swatch ${(guideColor ?? null) === hex ? "line-swatch--on" : ""}`}
+                  style={{ background: hex ?? "#20251f" }}
+                  onClick={() => updateGuide({ color: hex })}
+                  type="button"
+                />
+              ))}
+              <label className={`line-swatch line-swatch--custom ${guideColor && !LINE_COLOURS.some((c) => c.hex === guideColor) ? "line-swatch--on" : ""}`} title="Any colour">
+                <input
+                  aria-label="Pick any line colour"
+                  type="color"
+                  value={guideColor ?? "#20251f"}
+                  onChange={(e) => updateGuide({ color: e.target.value })}
+                />
+              </label>
+            </div>
           </div>
         )}
 

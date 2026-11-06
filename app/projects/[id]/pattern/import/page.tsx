@@ -62,10 +62,45 @@ function sampleHex(img: PixelImage, x: number, y: number): string {
   return rgbToHex([r / n, g / n, b / n])
 }
 
+/**
+ * Number box for columns / rows: only digits can be typed (number keypad on phones and iPads).
+ * The grid preview updates as you type; an empty or out-of-range value goes back on leaving the box.
+ */
+function SizeInput({ value, onChange, label }: { value: number; onChange: (n: number) => void; label: string }) {
+  const [draft, setDraft] = useState(String(value))
+  const [editing, setEditing] = useState(false)
+  const [before, setBefore] = useState(value)
+  const shown = editing ? draft : String(value)
+  const commit = () => {
+    const n = Number(draft)
+    onChange(draft !== "" && n >= 2 && n <= 300 ? n : before) // empty / out of range → back to what it was
+    setEditing(false)
+  }
+  return (
+    <input
+      aria-label={label}
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      maxLength={3}
+      value={shown}
+      onFocus={(e) => { setDraft(String(value)); setBefore(value); setEditing(true); e.currentTarget.select() }}
+      onChange={(e) => {
+        const digits = e.target.value.replace(/\D/g, "").slice(0, 3)
+        setDraft(digits)
+        const n = Number(digits)
+        if (digits !== "" && n >= 2 && n <= 300) onChange(n)
+      }}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur() }}
+    />
+  )
+}
+
 export default function ImportPatternPage() {
   const params = useParams<{ id: string }>()
   const router = useRouter()
-  const { projects, loading } = useProjects()
+  const { projects, loading, loadProjectImage } = useProjects()
   const project = projects.find((item) => String(item.id) === params.id)
 
   const [step, setStep] = useState<Step>("choose")
@@ -199,8 +234,22 @@ export default function ImportPatternPage() {
               <strong>Upload pattern screenshot</strong>
               <small>A straight screenshot works best. Keep the colour list at the bottom if it has one.</small>
             </label>
-            {project.image && (
-              <button className="outline-button" onClick={() => void open(project.image!)} type="button">
+            {project.hasImage && (
+              <button
+                className="outline-button"
+                onClick={async () => {
+                  setBusy("Opening image…")
+                  try {
+                    const src = await loadProjectImage(project)
+                    if (src) await open(src)
+                    else { setBusy(null); toast.error("This project has no picture saved.") }
+                  } catch (err) {
+                    setBusy(null)
+                    toast.error("Couldn't load the picture", { description: errorMessage(err) })
+                  }
+                }}
+                type="button"
+              >
                 Use this project&apos;s image
               </button>
             )}
@@ -227,9 +276,9 @@ export default function ImportPatternPage() {
           </div>
         </section>
         <div className="pattern-size">
-          <label><span>Columns</span><input type="number" min={2} max={300} value={cols} onChange={(e) => setCols(Math.max(2, Number(e.target.value) || 2))} /></label>
+          <label><span>Columns</span><SizeInput value={cols} onChange={setCols} label="Columns" /></label>
           <span>×</span>
-          <label><span>Rows</span><input type="number" min={2} max={300} value={rows} onChange={(e) => setRows(Math.max(2, Number(e.target.value) || 2))} /></label>
+          <label><span>Rows</span><SizeInput value={rows} onChange={setRows} label="Rows" /></label>
           <small className={spare >= 0 ? "save-status save-status--saved" : "save-status save-status--error"}>
             {spare === 0
               ? `✓ ${(cols * rows).toLocaleString()} cells = recipe total`

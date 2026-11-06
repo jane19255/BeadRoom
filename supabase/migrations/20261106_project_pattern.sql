@@ -21,6 +21,8 @@ create table if not exists public.project_pattern (
 alter table public.project_pattern add column if not exists guide_size integer not null default 5;
 alter table public.project_pattern add column if not exists guide_col_offset integer;
 alter table public.project_pattern add column if not exists guide_row_offset integer;
+-- Grid line colour chosen in bead mode (empty = default dark lines).
+alter table public.project_pattern add column if not exists guide_color text;
 
 -- Same access as the rest of BeadRoom (the app uses the public anon key, no login).
 -- If your other tables use stricter policies, copy those instead.

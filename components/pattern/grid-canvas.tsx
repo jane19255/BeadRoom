@@ -21,8 +21,8 @@ export type GridCanvasProps = {
   /** Row to outline (0-based). */
   currentRow?: number | null
   onCellTap?: (index: number) => void
-  /** Thicker guide lines every `size` cells (0 = none), starting after `col`/`row` cells. */
-  guide?: { size: number; col: number; row: number }
+  /** Thicker guide lines every `size` cells (0 = none), starting after `col`/`row` cells, in `color`. */
+  guide?: { size: number; col: number; row: number; color?: string | null }
   /** Changes when the grid should zoom to fit again (e.g. a new pattern). */
   fitKey?: string | number
 }
@@ -154,18 +154,21 @@ export function GridCanvas(props: GridCanvasProps) {
     }
 
     // Grid lines: light between every cell, thick guide lines between blocks (e.g. 5×5).
+    const [lr, lg, lb] = hexToRgb(guide.color || "#20251f")
+    const thinColour = `rgba(${lr},${lg},${lb},${guide.color ? 0.35 : 0.12})`
+    const thickColour = `rgba(${lr},${lg},${lb},${guide.color ? 0.95 : 0.6})`
     const thick = Math.max(1.5, Math.min(2.5, s * 0.08))
     for (let c = c0; c <= c1; c++) {
       const major = isMajor(c, cols, guide.col)
       if (!major && s < 5) continue
-      ctx.fillStyle = major ? "rgba(32,37,31,0.6)" : "rgba(32,37,31,0.12)"
+      ctx.fillStyle = major ? thickColour : thinColour
       const w = major ? thick : 0.5
       ctx.fillRect(Math.round(ox + c * s) - w / 2, oy + r0 * s, w, (r1 - r0) * s)
     }
     for (let r = r0; r <= r1; r++) {
       const major = isMajor(r, rows, guide.row)
       if (!major && s < 5) continue
-      ctx.fillStyle = major ? "rgba(32,37,31,0.6)" : "rgba(32,37,31,0.12)"
+      ctx.fillStyle = major ? thickColour : thinColour
       const w = major ? thick : 0.5
       ctx.fillRect(ox + c0 * s, Math.round(oy + r * s) - w / 2, (c1 - c0) * s, w)
     }
@@ -214,7 +217,7 @@ export function GridCanvas(props: GridCanvasProps) {
       ctx.fillStyle = r === currentRow ? "#b07a00" : start ? "#20251f" : "#9a9f97"
       ctx.fillText(String(n), AXIS / 2, oy + r * s + s / 2)
     }
-  }, [view, size, cols, rows, cells, colours, codes, focus, done, flagged, currentRow, guide.size, guide.col, guide.row]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [view, size, cols, rows, cells, colours, codes, focus, done, flagged, currentRow, guide.size, guide.col, guide.row, guide.color]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---------------------------- interaction ---------------------------- */
   const pointers = useRef(new Map<number, { x: number; y: number }>())

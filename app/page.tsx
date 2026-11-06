@@ -244,12 +244,18 @@ export default function ProjectsPage() {
                 >
                   <Icon name="close" />
                 </button>
-                {project.image ? (
+                {project.thumb || project.image ? (
                   <img
                     className="project-uploaded-image"
                     alt=""
-                    src={project.image}
+                    loading="lazy"
+                    src={project.thumb ?? project.image}
                   />
+                ) : project.hasImage ? (
+                  <div className="project-image-placeholder" aria-label="Picture loading">
+                    <span className="spinner" />
+                    <span>Loading picture…</span>
+                  </div>
                 ) : (
                   <div className="project-image-placeholder" aria-label="No project image uploaded">
                     <Icon name="palette" size={28} />

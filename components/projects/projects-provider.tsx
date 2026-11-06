@@ -1,8 +1,9 @@
 "use client"
 
-import { createContext, useContext, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react"
+import { createContext, useContext, useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react"
 import { supabase } from "@/lib/supabase/client"
-import { getOrCreateCategoryId, getProjects, saveProjectRecipe } from "@/lib/supabase/data"
+import { getOrCreateCategoryId, getProjectImage, getProjects, saveProjectRecipe, saveProjectThumb } from "@/lib/supabase/data"
+import { limitPictureSize, makeThumbnail } from "@/lib/images"
 import { keyOf, toDbStatus, totalBeads } from "@/lib/beads"
 import { errorMessage, toast } from "@/components/feedback"
 import type { CategoryItem, Project, ProjectStatus, RecipeRow } from "@/lib/types"
@@ -39,6 +40,72 @@ function useProjectsStore() {
     setProjects((current) => current.map((item) => (item.id === id ? { ...item, ...changes } : item)))
   }
 
+  /* ---------------- pictures: full size on demand, thumbnails for the list ---------------- */
+  const imageRequests = useRef(new Map<number, Promise<string | undefined>>())
+
+  /** Fetches a project's full picture (once) and keeps it for this visit. */
+  function loadProjectImage(project: Project): Promise<string | undefined> {
+    if (!project.id || !project.hasImage) return Promise.resolve(undefined)
+    if (project.image) return Promise.resolve(project.image)
+    const id = project.id
+    let request = imageRequests.current.get(id)
+    if (!request) {
+      request = getProjectImage(id).then((image) => {
+        patchProject(id, { image })
+        return image
+      })
+      request.catch(() => imageRequests.current.delete(id))
+      imageRequests.current.set(id, request)
+    }
+    return request
+  }
+
+  /**
+   * Existing pictures have no thumbnail yet: make them one at a time in the background and
+   * save them, so this only ever happens once per picture.
+   */
+  const backfillRunning = useRef(false)
+  async function backfillThumbnails(list: Project[]) {
+    if (backfillRunning.current) return
+    backfillRunning.current = true
+    let canSaveThumbs = true
+    try {
+      for (const project of list) {
+        if (!project.id || !project.hasImage || project.thumb) continue
+        try {
+          const image = await getProjectImage(project.id) // not kept: only the thumbnail is needed here
+          if (!image) continue
+          const thumb = await makeThumbnail(image)
+          patchProject(project.id, { thumb })
+          // If the image_thumb column doesn't exist yet, keep making thumbnails for this visit
+          // but stop trying to save them.
+          if (canSaveThumbs) canSaveThumbs = await saveProjectThumb(project.id, thumb)
+        } catch (err) {
+          console.warn(`Couldn't make a thumbnail for project ${project.id}:`, err)
+        }
+      }
+    } finally {
+      backfillRunning.current = false
+    }
+  }
+
+  /** Full picture + thumbnail ready to save, keeping very large uploads to a sensible size. */
+  async function preparePicture(image: string): Promise<{ image: string; thumb: string | null }> {
+    try {
+      const sized = await limitPictureSize(image)
+      return { image: sized, thumb: await makeThumbnail(sized) }
+    } catch {
+      return { image, thumb: null }
+    }
+  }
+
+  /** Writes to the project table, retrying without image_thumb if that column doesn't exist yet. */
+  type IdResult = { data: { id: number } | null; error: { message: string } | null }
+  async function withoutThumbIfMissing(run: (includeThumb: boolean) => PromiseLike<IdResult>): Promise<IdResult> {
+    const res = await run(true)
+    return res.error && /image_thumb/.test(res.error.message) ? run(false) : res
+  }
+
   async function loadProjects(applyDefaultTab = false) {
     setLoading(true)
     setError(null)
@@ -46,6 +113,7 @@ function useProjectsStore() {
       const result = await getProjects()
       setProjects(result.projects)
       setCategoryItems(result.categories)
+      void backfillThumbnails(result.projects)
       // On first load / refresh: open the On-going tab if there is any ongoing project,
       // otherwise the Not started tab, otherwise fall back to All projects.
       if (applyDefaultTab) {
@@ -66,14 +134,23 @@ function useProjectsStore() {
   async function createProject(project: Project): Promise<Project | null> {
     try {
       const categoryId = await getOrCreateCategoryId(project.category)
-      const { data: row, error } = await supabase.from("project").insert({
+      const picture = project.image ? await preparePicture(project.image) : { image: null, thumb: null }
+      const { data: row, error } = await withoutThumbIfMissing((includeThumb) => supabase.from("project").insert({
         name: project.name,
         category_id: categoryId,
         status: toDbStatus(project.status),
-        image_url: project.image || null,
-      }).select("id").single()
+        image_url: picture.image,
+        ...(includeThumb ? { image_thumb: picture.thumb } : {}),
+      }).select("id").single())
       if (error) throw error
-      const savedProject: Project = { ...project, id: Number(row.id) }
+      if (!row) throw new Error(RLS_HINT)
+      const savedProject: Project = {
+        ...project,
+        id: Number(row.id),
+        image: picture.image ?? undefined,
+        thumb: picture.thumb ?? undefined,
+        hasImage: !!picture.image,
+      }
       try {
         await saveProjectRecipe(savedProject.id!, project.recipe ?? [])
       } catch (recipeError) {
@@ -180,18 +257,28 @@ function useProjectsStore() {
     }
   }
 
-  async function updateProjectDetails(project: Project, name: string, categoryName: string, image: string): Promise<boolean> {
+  /** `image`: new picture, "" to remove it, or undefined to leave the picture as it is. */
+  async function updateProjectDetails(project: Project, name: string, categoryName: string, image?: string): Promise<boolean> {
     if (!project.id) return false
     try {
       const categoryId = await getOrCreateCategoryId(categoryName)
-      const { data: updated, error } = await supabase.from("project")
-        .update({ name, category_id: categoryId, image_url: image || null })
-        .eq("id", project.id)
+      const picture = image ? await preparePicture(image) : { image: null, thumb: null }
+      const { data: updated, error } = await withoutThumbIfMissing((includeThumb) => supabase.from("project")
+        .update({
+          name,
+          category_id: categoryId,
+          ...(image !== undefined ? { image_url: picture.image, ...(includeThumb ? { image_thumb: picture.thumb } : {}) } : {}),
+        })
+        .eq("id", project.id!)
         .select("id")
-        .maybeSingle()
+        .maybeSingle())
       if (error) throw error
       if (!updated) throw new Error(RLS_HINT)
-      patchProject(project.id, { name, category: categoryName, image: image || undefined })
+      patchProject(project.id, {
+        name,
+        category: categoryName,
+        ...(image !== undefined ? { image: picture.image ?? undefined, thumb: picture.thumb ?? undefined, hasImage: !!picture.image } : {}),
+      })
       toast.success("Project details saved")
       return true
     } catch (err) {
@@ -263,7 +350,7 @@ function useProjectsStore() {
     statusFilter, setStatusFilter, query, setQuery, category, setCategory,
     view, setView, selectedKeys, setSelectedKeys, notice, setNotice,
     createProject, deleteProject, updateProjectStatus, completeProject,
-    updateProjectDetails, updateProjectRecipe,
+    updateProjectDetails, updateProjectRecipe, loadProjectImage,
     saveCategoryChanges, addCategory, deleteCategory,
   }
 }

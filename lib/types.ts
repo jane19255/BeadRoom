@@ -14,7 +14,12 @@ export type Project = {
   pattern: string
   status: ProjectStatus
   beads: number
+  /** Full picture; loaded only when the project is opened (see loadProjectImage). */
   image?: string
+  /** Small picture for project cards. */
+  thumb?: string
+  /** Whether the project has a picture saved (even if it isn't loaded yet). */
+  hasImage?: boolean
   recipe?: RecipeRow[]
 }
 

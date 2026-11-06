@@ -5613,3 +5613,75 @@ button:disabled .spinner { opacity: 0.9; }
 }
 
 .bead-mode__runs .bead-mode__gap { color: var(--faint); font-style: italic; }
+
+/* ---------- iPad / tablet layout fixes ---------- */
+/* Hidden file picker stays inside its upload box (and the whole box is tappable).
+   Without this, the "inputs are full width" rules stretched it across the page and
+   the page could be scrolled sideways into empty space. */
+.upload-zone {
+  position: relative;
+  overflow: hidden;
+}
+
+.upload-zone input[type="file"] {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* Editing project details: fields take the full width, Cancel / Save sit underneath. */
+.detail-heading--editing {
+  display: block;
+}
+
+.detail-heading--editing .detail-edit-fields {
+  min-width: 0;
+  width: min(100%, 760px);
+}
+
+.detail-heading--editing .modal-actions {
+  justify-content: flex-start;
+  margin-top: 16px !important;
+}
+
+.detail-heading--editing .modal-actions button {
+  width: auto;
+  min-width: 120px;
+}
+
+/* Grid line colour swatches */
+.line-swatch {
+  position: relative;
+  display: inline-block;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 2px #fff;
+}
+
+.line-swatch--on {
+  border-color: var(--green);
+  box-shadow: inset 0 0 0 2px #fff, 0 0 0 2px var(--green);
+}
+
+.line-swatch--custom {
+  background: conic-gradient(#ff3b30, #ffd60a, #34c759, #32d1ff, #5856d6, #ff2d55, #ff3b30);
+}
+
+.line-swatch--custom input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}

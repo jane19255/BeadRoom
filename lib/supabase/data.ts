@@ -67,6 +67,54 @@ export async function fetchAllProjectColors() {
   return { data: all, error: null };
 }
 
+// Columns for the project list. Deliberately NOT image_url: full pictures are big, and loading
+// all of them at once made this query time out. Cards use the small image_thumb instead.
+const PROJECT_LIST_COLUMNS = "id, name, category_id, status, created_at"
+
+type ProjectListRow = {
+  id: number
+  name: string | null
+  category_id: number | null
+  status: string | null
+  created_at: string | null
+  image_thumb?: string | null
+}
+
+type ProjectListResult = { data: ProjectListRow[] | null; error: { message: string } | null }
+
+/** Project rows for the list, with a thumbnail if the image_thumb column exists. */
+async function getProjectRows(): Promise<ProjectListResult> {
+  const withThumb: ProjectListResult = await supabase
+    .from("project")
+    .select(`${PROJECT_LIST_COLUMNS}, image_thumb`)
+    .order("created_at", { ascending: false, nullsFirst: false })
+    .order("id", { ascending: false })
+  if (!withThumb.error || !/image_thumb/.test(withThumb.error.message)) return withThumb
+  // image_thumb column not created yet: still load the list, just without thumbnails.
+  console.warn("project.image_thumb column is missing. Run supabase/migrations/20261106_project_thumbnails.sql")
+  const withoutThumb: ProjectListResult = await supabase
+    .from("project")
+    .select(PROJECT_LIST_COLUMNS)
+    .order("created_at", { ascending: false, nullsFirst: false })
+    .order("id", { ascending: false })
+  return withoutThumb
+}
+
+/** The full picture of one project (or undefined if it has none). */
+export async function getProjectImage(projectId: number): Promise<string | undefined> {
+  const { data, error } = await supabase.from("project").select("image_url").eq("id", projectId).maybeSingle()
+  if (error) throw new Error(`Could not load the picture: ${error.message}`)
+  return data?.image_url ?? undefined
+}
+
+/** Saves a project's thumbnail. Returns false if the image_thumb column doesn't exist yet. */
+export async function saveProjectThumb(projectId: number, thumb: string): Promise<boolean> {
+  const { error } = await supabase.from("project").update({ image_thumb: thumb }).eq("id", projectId)
+  if (error && /image_thumb/.test(error.message)) return false
+  if (error) throw new Error(error.message)
+  return true
+}
+
 /** Loads every project with its category name and recipe. */
 export async function getProjects(): Promise<{ projects: Project[]; categories: CategoryItem[] }> {
   // These requests don't depend on each other, so fetch them all at once.
@@ -78,13 +126,14 @@ export async function getProjects(): Promise<{ projects: Project[]; categories: 
   ] = await Promise.all([
     // Newest first. Projects with no created_at go last (Postgres puts empty values FIRST
     // when sorting newest-first), and id breaks ties between same-time projects.
-    supabase.from("project").select("*")
-      .order("created_at", { ascending: false, nullsFirst: false })
-      .order("id", { ascending: false }),
+    getProjectRows(),
     supabase.from("category").select("*"),
     fetchAllProjectColors(),
     supabase.from("color").select("id, color_code, hex_code"),
   ]);
+  // Which projects have a picture (cheap: checks for "empty" without downloading the picture).
+  const { data: withImage } = await supabase.from("project").select("id").not("image_url", "is", null)
+  const hasImage = new Set((withImage ?? []).map((row: { id: number }) => Number(row.id)))
 
   const loadError = projectError ?? categoryError ?? recipeError ?? colorError;
   if (loadError) throw new Error(`Failed to load projects from Supabase: ${loadError.message}`);
@@ -109,11 +158,12 @@ export async function getProjects(): Promise<{ projects: Project[]; categories: 
     return {
       id: Number(row.id),
       name: row.name ?? "Untitled project",
-      category: categoryById.get(row.category_id)?.name ?? "Uncategorised",
+      category: (row.category_id == null ? undefined : categoryById.get(row.category_id))?.name ?? "Uncategorised",
       pattern: "default",
       status: normalizeStatus(row.status),
       beads: totalBeads(recipe),
-      image: row.image_url ?? undefined,
+      thumb: row.image_thumb ?? undefined,
+      hasImage: hasImage.has(Number(row.id)),
       recipe,
     };
   });
