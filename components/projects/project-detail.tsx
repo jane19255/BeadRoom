@@ -203,8 +203,8 @@ export function ProjectDetail({ project }: { project: Project }) {
         )}
       </section>
 
-      <div className="detail-layout">
-        <div>
+      {/* Order on phone/iPad: Check stock → picture → recipe. On a laptop: recipe + Check stock left, picture right. */}
+      <div className="detail-layout detail-layout--ordered">
           <section className="detail-card recipe-card">
             <div className="section-heading">
               <div>
@@ -361,7 +361,6 @@ export function ProjectDetail({ project }: { project: Project }) {
               </button>
             </section>
           )}
-        </div>
         <aside className="detail-preview">
           <div className={`preview-art art-panel--${project.pattern}`}>
             {displayImage ? (

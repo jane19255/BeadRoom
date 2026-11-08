@@ -51,10 +51,16 @@ export default function ProjectsPage() {
             press.
           </p>
         </div>
-        <Link className="primary-button" href="/projects/new">
-          <Icon name="plus" />
-          New project
-        </Link>
+        <div className="page-heading__actions">
+          <Link className="outline-button" href="/projects/new/draw">
+            <Icon name="grid" />
+            Draw pattern
+          </Link>
+          <Link className="primary-button" href="/projects/new">
+            <Icon name="plus" />
+            New project
+          </Link>
+        </div>
       </section>
 
       <section className="toolbar">

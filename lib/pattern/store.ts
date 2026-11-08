@@ -106,3 +106,15 @@ export async function saveGuide(projectId: number, size: number, colOffset: numb
   }
   if (!data) throw new Error(RLS_HINT)
 }
+
+/** Saves a changed grid together with its progress (e.g. after flipping the pattern). */
+export async function savePatternCells(projectId: number, cells: string[], done: string): Promise<void> {
+  const { data, error } = await supabase
+    .from("project_pattern")
+    .update({ cells, done, updated_at: new Date().toISOString() })
+    .eq("project_id", projectId)
+    .select("project_id")
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!data) throw new Error(RLS_HINT)
+}

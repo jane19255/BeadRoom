@@ -9,7 +9,8 @@ import { Icon } from "@/components/icon"
 import { GridCanvas } from "@/components/pattern/grid-canvas"
 import { useProjects } from "@/components/projects/projects-provider"
 import { compareCodes } from "@/lib/beads"
-import { autoGuideOffset, getPattern, saveGuide, saveProgress, type StoredPattern } from "@/lib/pattern/store"
+import { autoGuideOffset, getPattern, saveGuide, savePatternCells, saveProgress, type StoredPattern } from "@/lib/pattern/store"
+import { flipHorizontal, flipHorizontalText } from "@/lib/pattern/edit"
 import { getPalette } from "@/lib/supabase/data"
 
 /** Keeps the phone screen on while beading (where the browser supports it). */
@@ -150,6 +151,30 @@ export default function BeadModePage() {
       .catch((err) => { setSaveState("error"); toast.error("Couldn't save progress", { description: errorMessage(err) }) })
   }
 
+  /** Mirror the whole pattern left ↔ right (done marks move with their beads). Press again to flip back. */
+  const [flipping, setFlipping] = useState(false)
+  async function flipPattern() {
+    if (!pattern) return
+    const cells = flipHorizontal(pattern.cells, pattern.cols, pattern.rows)
+    const flippedDone = flipHorizontalText(done, pattern.cols, pattern.rows)
+    setFlipping(true)
+    try {
+      window.clearTimeout(timer.current) // the flip saves progress too
+      await savePatternCells(projectId, cells, flippedDone)
+      setPattern({ ...pattern, cells, done: flippedDone })
+      if (flippedDone !== done) {
+        firstRender.current = true // the progress was just saved with the flip: skip one auto-save
+        setDone(flippedDone)
+      }
+      setSaveState("saved")
+      toast.success("Pattern flipped left ↔ right", { description: "Press Flip again to turn it back." })
+    } catch (err) {
+      toast.error("Couldn't flip the pattern", { description: errorMessage(err) })
+    } finally {
+      setFlipping(false)
+    }
+  }
+
   function setCells(indexes: number[], value: "0" | "1") {
     setDone((current) => {
       const chars = current.split("")
@@ -230,6 +255,7 @@ export default function BeadModePage() {
             {tapToMark ? "Tap marks beads ✓" : "Tap to mark beads"}
           </button>
           <button className={showGuide ? "chip chip--on" : "chip"} onClick={() => setShowGuide((v) => !v)} type="button">Grid lines</button>
+          <button className="chip" onClick={() => void flipPattern()} disabled={flipping} title="Mirror the whole pattern left ↔ right" type="button">⇋ Flip</button>
           <button className="chip" onClick={() => setConfirmReset(true)} type="button">Reset</button>
           <Link className="chip" href={`/projects/${projectId}/pattern/import`}>Re-import</Link>
         </div>

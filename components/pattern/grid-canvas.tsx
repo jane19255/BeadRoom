@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
 import { hexToRgb, luminance } from "@/lib/pattern/decode"
+import { cellsBetween } from "@/lib/pattern/edit"
 
 export type GridCanvasProps = {
   cols: number
@@ -25,6 +26,16 @@ export type GridCanvasProps = {
   guide?: { size: number; col: number; row: number; color?: string | null }
   /** Changes when the grid should zoom to fit again (e.g. a new pattern). */
   fitKey?: string | number
+  /**
+   * Paint mode: Pencil, mouse or one finger paints cells (tap or drag); two fingers pan and pinch.
+   * Once the Pencil has been used, a single finger no longer paints (so a resting palm can't).
+   * onPaintStart runs once per stroke (for undo), onPaint for every cell the stroke touches.
+   */
+  painting?: boolean
+  onPaintStart?: () => void
+  onPaint?: (index: number) => void
+  /** Shown floating over the grid in full screen (e.g. colour + undo while drawing). */
+  fullscreenTools?: ReactNode
 }
 
 type View = { scale: number; x: number; y: number }
@@ -40,7 +51,7 @@ function mix(hex: string, amount: number): string {
 }
 
 export function GridCanvas(props: GridCanvasProps) {
-  const { cols, rows, cells, colours, codes, focus = null, done, flagged, currentRow = null, onCellTap, fitKey } = props
+  const { cols, rows, cells, colours, codes, focus = null, done, flagged, currentRow = null, onCellTap, fitKey, painting = false, onPaintStart, onPaint, fullscreenTools } = props
   const guide = props.guide ?? { size: 5, col: Math.floor((cols % 5) / 2), row: Math.floor((rows % 5) / 2) }
   // Is the line before cell `n` (0..count) a thick one? Outer edges always are.
   const isMajor = (n: number, count: number, offset: number) =>
@@ -221,21 +232,52 @@ export function GridCanvas(props: GridCanvasProps) {
 
   /* ---------------------------- interaction ---------------------------- */
   const pointers = useRef(new Map<number, { x: number; y: number }>())
-  const gesture = useRef<{ moved: boolean; startX: number; startY: number; dist: number } | null>(null)
+  const gesture = useRef<{ moved: boolean; startX: number; startY: number; dist: number; mid: { x: number; y: number } } | null>(null)
+  // Painting: which pointer is drawing, and the last cell it painted.
+  const stroke = useRef<{ id: number; last: { c: number; r: number } | null } | null>(null)
+  const penSeen = useRef(false)
 
   function local(e: { clientX: number; clientY: number }) {
     const rect = canvasRef.current!.getBoundingClientRect()
     return { x: e.clientX - rect.left, y: e.clientY - rect.top }
   }
 
+  function cellAt(p: { x: number; y: number }) {
+    const v = viewRef.current
+    const c = Math.floor((p.x - v.x) / v.scale), r = Math.floor((p.y - v.y) / v.scale)
+    return p.x > AXIS && p.y > AXIS && c >= 0 && r >= 0 && c < cols && r < rows ? { c, r } : null
+  }
+
+  function paintTo(p: { x: number; y: number }) {
+    if (!stroke.current || !onPaint) return
+    const cell = cellAt(p)
+    if (!cell) { stroke.current.last = null; return }
+    const from = stroke.current.last ?? cell
+    for (const step of cellsBetween(from, cell)) onPaint(step.r * cols + step.c)
+    stroke.current.last = cell
+  }
+
   function onPointerDown(e: ReactPointerEvent<HTMLCanvasElement>) {
     e.currentTarget.setPointerCapture(e.pointerId)
     const p = local(e)
+    if (e.pointerType === "pen") penSeen.current = true
+    // Paint with Pencil / mouse, or a finger when no Pencil has been used. A second finger turns it into a pan/zoom.
+    const canPaint = painting && onPaint && (e.pointerType !== "touch" || !penSeen.current)
+    if (canPaint && pointers.current.size === 0) {
+      pointers.current.set(e.pointerId, p)
+      stroke.current = { id: e.pointerId, last: null }
+      onPaintStart?.()
+      paintTo(p)
+      gesture.current = { moved: true, startX: p.x, startY: p.y, dist: 0, mid: p }
+      return
+    }
+    if (e.pointerType === "pen" && painting) return // never pan with the Pencil while painting
     pointers.current.set(e.pointerId, p)
-    if (pointers.current.size === 1) gesture.current = { moved: false, startX: p.x, startY: p.y, dist: 0 }
+    if (pointers.current.size === 1) gesture.current = { moved: false, startX: p.x, startY: p.y, dist: 0, mid: p }
     if (pointers.current.size === 2) {
+      stroke.current = null // second finger: stop painting, start pan/zoom
       const [a, b] = [...pointers.current.values()]
-      gesture.current = { moved: true, startX: 0, startY: 0, dist: Math.hypot(a.x - b.x, a.y - b.y) }
+      gesture.current = { moved: true, startX: 0, startY: 0, dist: Math.hypot(a.x - b.x, a.y - b.y), mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } }
     }
   }
 
@@ -244,31 +286,92 @@ export function GridCanvas(props: GridCanvasProps) {
     if (!prev || !gesture.current) return
     const p = local(e)
     pointers.current.set(e.pointerId, p)
+    if (stroke.current?.id === e.pointerId) { paintTo(p); return }
     if (pointers.current.size === 1) {
       if (!gesture.current.moved && Math.hypot(p.x - gesture.current.startX, p.y - gesture.current.startY) < 6) return
       gesture.current.moved = true
       setView((v) => ({ ...v, x: v.x + p.x - prev.x, y: v.y + p.y - prev.y }))
     } else if (pointers.current.size === 2) {
+      // Two fingers: pinch to zoom and drag to move, at the same time.
       const [a, b] = [...pointers.current.values()]
       const dist = Math.hypot(a.x - b.x, a.y - b.y)
-      if (gesture.current.dist > 0) zoomAt(dist / gesture.current.dist, (a.x + b.x) / 2, (a.y + b.y) / 2)
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+      const k = gesture.current.dist > 0 ? dist / gesture.current.dist : 1
+      const dx = mid.x - gesture.current.mid.x, dy = mid.y - gesture.current.mid.y
+      setView((v) => {
+        const scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, v.scale * k))
+        const kk = scale / v.scale
+        return { scale, x: mid.x - (mid.x - v.x) * kk + dx, y: mid.y - (mid.y - v.y) * kk + dy }
+      })
       gesture.current.dist = dist
+      gesture.current.mid = mid
     }
   }
 
   function onPointerUp(e: ReactPointerEvent<HTMLCanvasElement>) {
-    const wasTap = pointers.current.size === 1 && gesture.current && !gesture.current.moved
+    const wasTap = pointers.current.size === 1 && gesture.current && !gesture.current.moved && !stroke.current
     pointers.current.delete(e.pointerId)
+    if (stroke.current?.id === e.pointerId) stroke.current = null
     if (pointers.current.size === 0) {
       if (wasTap && onCellTap) {
-        const p = local(e)
-        const v = viewRef.current
-        const c = Math.floor((p.x - v.x) / v.scale), r = Math.floor((p.y - v.y) / v.scale)
-        if (p.x > AXIS && p.y > AXIS && c >= 0 && r >= 0 && c < cols && r < rows) onCellTap(r * cols + c)
+        const cell = cellAt(local(e))
+        if (cell) onCellTap(cell.r * cols + cell.c)
       }
       gesture.current = null
+    } else if (pointers.current.size === 1) {
+      // One finger left after a pinch: carry on panning from where it is.
+      const [rest] = [...pointers.current.values()]
+      gesture.current = { moved: true, startX: rest.x, startY: rest.y, dist: 0, mid: rest }
     }
   }
+
+  /* ----------------------------- full screen ----------------------------- */
+  // Grid fills the whole screen (sidebar, header and controls hidden); zoom/pan/paint still work.
+  // Uses the browser's real full screen where allowed, and a full-window view otherwise.
+  const [full, setFull] = useState(false)
+  type FsDoc = Document & { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => Promise<void> }
+  type FsEl = HTMLElement & { webkitRequestFullscreen?: () => Promise<void> | void }
+  function enterFull() {
+    setFull(true)
+    const el = wrapRef.current as FsEl | null
+    try {
+      const req = el?.requestFullscreen?.bind(el) ?? el?.webkitRequestFullscreen?.bind(el)
+      const result = req?.()
+      if (result && typeof (result as Promise<void>).catch === "function") (result as Promise<void>).catch(() => {})
+    } catch { /* full-window view still works */ }
+  }
+  function exitFull() {
+    setFull(false)
+    const doc = document as FsDoc
+    if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+      try { void (doc.exitFullscreen?.() ?? doc.webkitExitFullscreen?.())?.catch?.(() => {}) } catch { /* ignore */ }
+    }
+  }
+  useEffect(() => {
+    if (!full) return
+    const doc = document as FsDoc
+    const onChange = () => { if (!doc.fullscreenElement && !doc.webkitFullscreenElement) setFull(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") exitFull() }
+    document.addEventListener("fullscreenchange", onChange)
+    document.addEventListener("webkitfullscreenchange", onChange)
+    window.addEventListener("keydown", onKey)
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.removeEventListener("fullscreenchange", onChange)
+      document.removeEventListener("webkitfullscreenchange", onChange)
+      window.removeEventListener("keydown", onKey)
+      document.body.style.overflow = overflow
+    }
+  }, [full]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Re-fit when entering/leaving full screen. The box only gets its new size a moment later
+  // (and full screen can settle in steps), so re-fit on size changes for a short while.
+  const refitUntil = useRef(0)
+  const lastFull = useRef(full)
+  useEffect(() => {
+    if (lastFull.current !== full) { lastFull.current = full; refitUntil.current = Date.now() + 800 }
+    if (size.w && Date.now() < refitUntil.current) fit()
+  }, [full, size.w, size.h]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Mouse wheel / trackpad zoom (needs a non-passive listener to stop the page scrolling).
   useEffect(() => {
@@ -288,7 +391,7 @@ export function GridCanvas(props: GridCanvasProps) {
   }, [])
 
   return (
-    <div className="grid-canvas" ref={wrapRef}>
+    <div className={`grid-canvas ${full ? "grid-canvas--full" : ""} ${painting ? "grid-canvas--painting" : ""}`} ref={wrapRef}>
       <canvas
         ref={canvasRef}
         style={{ width: size.w, height: size.h }}
@@ -301,7 +404,14 @@ export function GridCanvas(props: GridCanvasProps) {
         <button aria-label="Zoom in" onClick={() => zoomAt(1.4, size.w / 2, size.h / 2)} type="button">+</button>
         <button aria-label="Zoom out" onClick={() => zoomAt(1 / 1.4, size.w / 2, size.h / 2)} type="button">−</button>
         <button aria-label="Fit whole pattern" onClick={fit} type="button">⤢</button>
+        {!full && <button aria-label="Full screen" title="Full screen" onClick={enterFull} type="button">⛶</button>}
       </div>
+      {full && (
+        <>
+          <button className="grid-canvas__exit" onClick={exitFull} type="button">✕ Exit full screen</button>
+          {fullscreenTools && <div className="grid-canvas__tools">{fullscreenTools}</div>}
+        </>
+      )}
     </div>
   )
 }

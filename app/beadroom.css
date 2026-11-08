@@ -5685,3 +5685,276 @@ button:disabled .spinner { opacity: 0.9; }
   opacity: 0;
   cursor: pointer;
 }
+
+/* ---------- Project details: order by device ---------- */
+/* Phone & iPad: one column — Check stock, then the picture, then the bead recipe. Nothing sticky. */
+.detail-layout.detail-layout--ordered {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "actions" "preview" "recipe";
+  align-items: start;
+  gap: 16px;
+}
+
+.detail-layout--ordered > .recipe-card { grid-area: recipe; }
+.detail-layout--ordered > .project-actions { grid-area: actions; }
+.detail-layout--ordered > .detail-preview {
+  grid-area: preview;
+  position: static;
+  order: 0;
+}
+
+/* Laptop / desktop only (wide screen with a mouse or trackpad): recipe left, picture right. */
+@media (min-width: 1100px) and (hover: hover) and (pointer: fine) {
+  .detail-layout.detail-layout--ordered {
+    grid-template-columns: minmax(0, 1fr) 300px;
+    grid-template-areas: "recipe preview" "actions preview";
+    grid-template-rows: auto 1fr;
+  }
+
+  .detail-layout--ordered > .detail-preview {
+    position: sticky;
+    top: 75px;
+  }
+}
+
+/* Check the pattern: show the whole pattern / whole screenshot, no inner scrolling */
+.pattern-review .pattern-stage { height: auto; min-height: 0; }
+.pattern-review .pattern-stage .grid-canvas { min-height: 0; }
+.pattern-review .pattern-stage--shot { aspect-ratio: auto; }
+.pattern-review .pattern-shot { max-height: none; overflow: visible; }
+
+/* Grid full screen: only the grid (and its zoom buttons) */
+.grid-canvas--full {
+  position: fixed !important;
+  z-index: 1000;
+  inset: 0;
+  width: 100vw !important;
+  height: 100dvh !important;
+  border: 0;
+  border-radius: 0;
+  background: #f8f7f2;
+}
+
+.grid-canvas__exit {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  right: 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 2px 10px rgba(27, 31, 26, 0.15);
+  cursor: pointer;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.grid-canvas--full .grid-canvas__zoom { bottom: max(14px, env(safe-area-inset-bottom)); }
+
+.grid-canvas__tools {
+  position: absolute;
+  left: 50%;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  display: flex;
+  max-width: calc(100% - 110px);
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  transform: translateX(-50%);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 6px 24px rgba(27, 31, 26, 0.18);
+  padding: 6px 8px;
+  scrollbar-width: none;
+}
+
+.grid-canvas--painting canvas { cursor: crosshair; }
+
+/* Drawing tools (Check the pattern / Draw a pattern) */
+.paint-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.paint-tools--compact { flex-wrap: nowrap; margin: 0; }
+
+.paint-tools__brush {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 4px;
+  font-size: 13px;
+}
+
+.paint-tools__brush i {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.paint-tools__brush i.is-none {
+  background: repeating-conic-gradient(#cfd0c8 0 25%, #e4e4de 0 50%) 50% / 8px 8px !important;
+}
+
+.paint-tools__tool {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.paint-tools--compact .paint-tools__tool { min-width: 38px; justify-content: center; padding: 0 8px; }
+.paint-tools__tool.is-on { border-color: var(--green); background: var(--green); color: #fff; }
+.paint-tools__tool:disabled { opacity: 0.4; cursor: default; }
+.paint-tools__sep { width: 1px; height: 24px; margin: 0 2px; background: var(--line); }
+
+.pattern-key__highlight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -4px 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pattern-key__main[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--green); border-radius: 6px; }
+
+/* colour chips in the floating full-screen tool bar */
+.grid-canvas__tools { flex-direction: column; align-items: stretch; }
+.fullscreen-colours { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.fullscreen-colours button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  cursor: pointer;
+  padding: 4px 8px 4px 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.fullscreen-colours button.is-on { border-color: var(--green); box-shadow: inset 0 0 0 1px var(--green); }
+.fullscreen-colours i { width: 16px; height: 16px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
+
+/* Header buttons (projects page) */
+.page-heading__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.text-link { color: var(--green); font-weight: 600; text-decoration: underline; }
+
+/* ---------- Draw a pattern ---------- */
+.draw-draft {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 640px;
+  margin-bottom: 14px;
+}
+.draw-draft p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+
+.draw-setup { display: grid; max-width: 640px; gap: 16px; }
+.draw-setup label > span,
+.draw-setup__label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.draw-setup select,
+.draw-setup input:not([aria-label]) {
+  width: 100%;
+  height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 0 12px;
+  font-size: 15px;
+}
+.draw-setup__boards { display: flex; flex-wrap: wrap; gap: 6px; }
+.draw-setup > .primary-button { justify-self: start; min-height: 44px; padding: 0 20px; }
+
+.draw-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+.draw-stage .grid-canvas { min-height: 0; }
+.draw-panel { display: grid; gap: 14px; align-content: start; }
+.draw-panel h2 { margin: 0 0 8px; font-size: 15px; }
+.draw-panel__search {
+  width: 100%;
+  height: 38px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 0 10px;
+  font-size: 14px;
+}
+.draw-panel__recent { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.draw-panel__recent button {
+  width: 30px;
+  height: 30px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--line);
+  cursor: pointer;
+  padding: 0;
+}
+.draw-panel__recent button i { display: block; width: 100%; height: 100%; border-radius: 50%; }
+.draw-panel__recent button.is-on { box-shadow: 0 0 0 2px var(--green); }
+.draw-panel__palette {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+  gap: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 2px;
+}
+.draw-panel__palette button,
+.draw-panel__recipe button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+  padding: 5px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+.draw-panel__palette button.is-on { border-color: var(--green); box-shadow: inset 0 0 0 1px var(--green); background: var(--green-soft); }
+.draw-panel__palette i,
+.draw-panel__recipe i { width: 16px; height: 16px; flex: none; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
+.draw-panel__recipe {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 4px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+.draw-panel__recipe button { width: 100%; }
+.draw-panel__recipe span { margin-left: auto; color: var(--muted); font-weight: 500; }
+
+/* Laptop: drawing left, colours right */
+@media (min-width: 1100px) and (hover: hover) and (pointer: fine) {
+  .draw-layout { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; }
+  .draw-panel { position: sticky; top: 20px; }
+}

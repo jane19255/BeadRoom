@@ -8,6 +8,10 @@ import { errorMessage, LoadingOverlay, Spinner, toast } from "@/components/feedb
 import { Icon } from "@/components/icon"
 import { GridAligner } from "@/components/pattern/grid-aligner"
 import { GridCanvas } from "@/components/pattern/grid-canvas"
+import { PaintTools, type PaintTool } from "@/components/pattern/paint-tools"
+import { SizeInput } from "@/components/pattern/size-input"
+import { useCellHistory } from "@/components/pattern/use-cell-history"
+import { flipHorizontal, floodFill } from "@/lib/pattern/edit"
 import { useProjects } from "@/components/projects/projects-provider"
 import {
   EMPTY, decodePattern, guessGridBox, guessGridSize, rgbToHex,
@@ -62,41 +66,6 @@ function sampleHex(img: PixelImage, x: number, y: number): string {
   return rgbToHex([r / n, g / n, b / n])
 }
 
-/**
- * Number box for columns / rows: only digits can be typed (number keypad on phones and iPads).
- * The grid preview updates as you type; an empty or out-of-range value goes back on leaving the box.
- */
-function SizeInput({ value, onChange, label }: { value: number; onChange: (n: number) => void; label: string }) {
-  const [draft, setDraft] = useState(String(value))
-  const [editing, setEditing] = useState(false)
-  const [before, setBefore] = useState(value)
-  const shown = editing ? draft : String(value)
-  const commit = () => {
-    const n = Number(draft)
-    onChange(draft !== "" && n >= 2 && n <= 300 ? n : before) // empty / out of range → back to what it was
-    setEditing(false)
-  }
-  return (
-    <input
-      aria-label={label}
-      type="text"
-      inputMode="numeric"
-      pattern="[0-9]*"
-      maxLength={3}
-      value={shown}
-      onFocus={(e) => { setDraft(String(value)); setBefore(value); setEditing(true); e.currentTarget.select() }}
-      onChange={(e) => {
-        const digits = e.target.value.replace(/\D/g, "").slice(0, 3)
-        setDraft(digits)
-        const n = Number(digits)
-        if (digits !== "" && n >= 2 && n <= 300) onChange(n)
-      }}
-      onBlur={commit}
-      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur() }}
-    />
-  )
-}
-
 export default function ImportPatternPage() {
   const params = useParams<{ id: string }>()
   const router = useRouter()
@@ -111,9 +80,14 @@ export default function ImportPatternPage() {
   const [rows, setRows] = useState(52)
   const [palette, setPalette] = useState<PaletteEntry[]>([])
   const [result, setResult] = useState<DecodeResult | null>(null)
-  const [cells, setCells] = useState<number[]>([])
+  // Cells with undo/redo (painting, fill, flip and single-cell fixes are all undoable).
+  const history = useCellHistory()
+  const cells = history.cells
+  // Drawing: selected tool and colour (palette index, or EMPTY for "no bead").
+  const [tool, setTool] = useState<PaintTool>("move")
+  const [brush, setBrush] = useState<number | null>(null)
+  const [highlight, setHighlight] = useState(false)
   const [flagged, setFlagged] = useState<boolean[]>([])
-  const [focus, setFocus] = useState<number | null>(null)
   const [view, setView] = useState<"pattern" | "screenshot">("pattern")
   const [picking, setPicking] = useState<number | null>(null)
   const [editCell, setEditCell] = useState<number | null>(null)
@@ -132,6 +106,63 @@ export default function ImportPatternPage() {
   }, [cells, palette])
   const flaggedCount = flagged.filter(Boolean).length
   const emptyCells = cells.filter((c) => c === EMPTY).length
+
+  /* ------------------------------ drawing ------------------------------ */
+  function selectBrush(j: number) {
+    setBrush(j)
+    setTool(j === EMPTY ? "erase" : "paint")
+  }
+
+  function unflag(i: number) {
+    setFlagged((cur) => (cur[i] ? cur.map((f, k) => (k === i ? false : f)) : cur))
+  }
+
+  function paintCell(i: number) {
+    const value = tool === "erase" ? EMPTY : brush
+    if (value === null) return
+    history.setCell(i, value)
+    unflag(i)
+  }
+
+  function tapCell(i: number) {
+    if (tool === "fill") {
+      if (brush === null) { toast.error("Choose a colour first"); return }
+      history.checkpoint()
+      history.change((cur) => floodFill(cur, cols, rows, i, brush))
+    } else if (tool === "pick") {
+      selectBrush(cells[i])
+    } else {
+      setEditCell(i) // Move tool: tap a cell to choose its colour from a list
+    }
+  }
+
+  function flip() {
+    history.checkpoint()
+    history.change((cur) => flipHorizontal(cur, cols, rows))
+    setFlagged((cur) => flipHorizontal(cur, cols, rows))
+    toast.success("Pattern flipped left ↔ right", { description: "Tap Undo to flip it back." })
+  }
+
+  function tools(compact: boolean) {
+    const brushInfo = brush === null ? null : brush === EMPTY ? { code: "Empty", hex: "transparent" } : { code: palette[brush]?.code ?? "", hex: palette[brush]?.hex ?? "#ccc" }
+    return (
+      <>
+        <PaintTools
+          compact={compact} tool={tool} onTool={setTool} brush={brushInfo}
+          canUndo={history.canUndo} canRedo={history.canRedo} onUndo={history.undo} onRedo={history.redo} onFlip={flip}
+        />
+        {compact && (
+          <div className="fullscreen-colours">
+            {palette.map((p, j) => (
+              <button key={p.code} className={brush === j ? "is-on" : undefined} title={p.code} onClick={() => selectBrush(j)} type="button">
+                <i style={{ background: p.hex }} />{p.code}
+              </button>
+            ))}
+          </div>
+        )}
+      </>
+    )
+  }
 
   if (loading) return <LoadingOverlay message="Loading your project…" />
   if (!project?.id) {
@@ -171,7 +202,7 @@ export default function ImportPatternPage() {
         const res = decodePattern(image.pixels, box, cols, rows, nextPalette)
         setPalette(nextPalette)
         setResult(res)
-        setCells(res.cells)
+        history.reset(res.cells)
         setFlagged(res.flagged)
         setStep("review")
         setView("pattern")
@@ -334,14 +365,27 @@ export default function ImportPatternPage() {
           </div>
         )}
 
+        {view === "pattern" && tools(false)}
+        {view === "pattern" && (tool === "paint" && brush === null) && (
+          <p className="pattern-hint">Choose a colour in the colour list first, then tap or draw on the cells.</p>
+        )}
+
         <div className="pattern-review-layout">
-          <div className="pattern-stage">
+          <div
+            className={`pattern-stage ${view === "screenshot" ? "pattern-stage--shot" : ""}`}
+            // Pattern tab: the box takes the grid's own shape so the whole pattern is visible.
+            style={view === "pattern" ? { aspectRatio: `${cols + 2} / ${rows + 2}` } : undefined}
+          >
             {view === "pattern" ? (
               <GridCanvas
                 cols={cols} rows={rows} cells={cells}
                 colours={palette.map((p) => p.hex)} codes={palette.map((p) => p.code)}
-                focus={focus} flagged={flagged} fitKey={`${cols}x${rows}`}
-                onCellTap={(i) => setEditCell(i)}
+                focus={highlight && brush !== null && brush !== EMPTY ? brush : null} flagged={flagged} fitKey={`${cols}x${rows}`}
+                painting={tool === "paint" || tool === "erase"}
+                onPaintStart={() => history.checkpoint()}
+                onPaint={paintCell}
+                onCellTap={tapCell}
+                fullscreenTools={tools(true)}
               />
             ) : (
               <div className="pattern-shot">
@@ -361,13 +405,17 @@ export default function ImportPatternPage() {
 
           <aside className="pattern-key">
             <h2>Colours</h2>
-            <p>{result.countsMatch ? "All counts match the recipe." : "Counts compared with the recipe."} Tap a colour to highlight it.</p>
+            <p>{result.countsMatch ? "All counts match the recipe." : "Counts compared with the recipe."} Tap a colour, then tap or draw on cells to paint them.</p>
+            <label className="pattern-key__highlight">
+              <input type="checkbox" checked={highlight} onChange={(e) => setHighlight(e.target.checked)} />
+              Highlight the selected colour
+            </label>
             <ul>
               {palette.map((p, j) => {
                 const diff = counts[j] - (p.count ?? counts[j])
                 return (
-                  <li key={p.code} className={focus === j ? "is-focused" : undefined}>
-                    <button className="pattern-key__main" onClick={() => setFocus(focus === j ? null : j)} type="button">
+                  <li key={p.code} className={brush === j ? "is-focused" : undefined}>
+                    <button className="pattern-key__main" aria-pressed={brush === j} onClick={() => selectBrush(j)} type="button">
                       <span className="colour-dot" style={{ backgroundColor: p.hex }} />
                       <strong>{p.code}</strong>
                       <span>{counts[j]}</span>
@@ -385,15 +433,15 @@ export default function ImportPatternPage() {
                 )
               })}
               {(emptyCells > 0 || cols * rows > recipeTotal) && (
-                <li>
-                  <span className="pattern-key__main" style={{ cursor: "default" }}>
+                <li className={brush === EMPTY ? "is-focused" : undefined}>
+                  <button className="pattern-key__main" aria-pressed={brush === EMPTY} onClick={() => selectBrush(EMPTY)} type="button">
                     <span className="colour-dot colour-dot--empty" />
                     <strong>Empty</strong>
                     <span>{emptyCells}</span>
                     <small className={emptyCells === cols * rows - recipeTotal ? "ok" : "off"}>
                       {emptyCells === cols * rows - recipeTotal ? "✓" : emptyCells - (cols * rows - recipeTotal) > 0 ? `+${emptyCells - (cols * rows - recipeTotal)}` : emptyCells - (cols * rows - recipeTotal)}
                     </small>
-                  </span>
+                  </button>
                 </li>
               )}
             </ul>
@@ -415,7 +463,8 @@ export default function ImportPatternPage() {
                     key={p.code}
                     className={cells[editCell] === j ? "is-current" : undefined}
                     onClick={() => {
-                      setCells((cur) => cur.map((c, i) => (i === editCell ? j : c)))
+                      history.checkpoint()
+                      history.setCell(editCell, j)
                       setFlagged((cur) => cur.map((f, i) => (i === editCell ? false : f)))
                       setEditCell(null)
                     }}
@@ -428,7 +477,8 @@ export default function ImportPatternPage() {
                 <button
                   className={cells[editCell] === EMPTY ? "is-current" : undefined}
                   onClick={() => {
-                    setCells((cur) => cur.map((c, i) => (i === editCell ? EMPTY : c)))
+                    history.checkpoint()
+                    history.setCell(editCell, EMPTY)
                     setFlagged((cur) => cur.map((f, i) => (i === editCell ? false : f)))
                     setEditCell(null)
                   }}

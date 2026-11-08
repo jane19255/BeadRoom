@@ -108,6 +108,10 @@ export default function AddProjectPage() {
             Upload your pattern, review the detected colours, and adjust every
             bead count before saving.
           </p>
+          <p>
+            No picture? <Link href="/projects/new/draw" className="text-link">Draw the pattern yourself</Link> and
+            the bead recipe is counted for you.
+          </p>
         </div>
       </section>
 
