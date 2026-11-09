@@ -11,7 +11,7 @@ import { GridCanvas } from "@/components/pattern/grid-canvas"
 import { PaintTools, type PaintTool } from "@/components/pattern/paint-tools"
 import { SizeInput } from "@/components/pattern/size-input"
 import { useCellHistory } from "@/components/pattern/use-cell-history"
-import { flipHorizontal, floodFill } from "@/lib/pattern/edit"
+import { flipHorizontal, floodFill, moveSelection } from "@/lib/pattern/edit"
 import { useProjects } from "@/components/projects/projects-provider"
 import {
   EMPTY, decodePattern, guessGridBox, guessGridSize, rgbToHex,
@@ -87,6 +87,7 @@ export default function ImportPatternPage() {
   const [tool, setTool] = useState<PaintTool>("move")
   const [brush, setBrush] = useState<number | null>(null)
   const [highlight, setHighlight] = useState(false)
+  const [selection, setSelection] = useState<boolean[] | null>(null)
   const [flagged, setFlagged] = useState<boolean[]>([])
   const [view, setView] = useState<"pattern" | "screenshot">("pattern")
   const [picking, setPicking] = useState<number | null>(null)
@@ -110,7 +111,28 @@ export default function ImportPatternPage() {
   /* ------------------------------ drawing ------------------------------ */
   function selectBrush(j: number) {
     setBrush(j)
-    setTool(j === EMPTY ? "erase" : "paint")
+    chooseTool(j === EMPTY ? "erase" : "paint")
+  }
+
+  function chooseTool(next: PaintTool) {
+    setTool(next)
+    if (next !== "select") setSelection(null)
+  }
+
+  // Select tool: move the selected cells (their red "check this" outlines move with them).
+  function moveSelected(dc: number, dr: number) {
+    if (!selection) return
+    const moved = moveSelection(cells, selection, cols, rows, dc, dr, EMPTY)
+    history.checkpoint()
+    history.change(() => moved.cells)
+    setFlagged((cur) => moveSelection(cur, selection, cols, rows, dc, dr, false).cells)
+    setSelection(moved.mask)
+  }
+
+  function deleteSelected() {
+    if (!selection) return
+    history.checkpoint()
+    history.change((cur) => cur.map((v, i) => (selection[i] ? EMPTY : v)))
   }
 
   function unflag(i: number) {
@@ -140,6 +162,7 @@ export default function ImportPatternPage() {
     history.checkpoint()
     history.change((cur) => flipHorizontal(cur, cols, rows))
     setFlagged((cur) => flipHorizontal(cur, cols, rows))
+    setSelection(null)
     toast.success("Pattern flipped left ↔ right", { description: "Tap Undo to flip it back." })
   }
 
@@ -148,8 +171,11 @@ export default function ImportPatternPage() {
     return (
       <>
         <PaintTools
-          compact={compact} tool={tool} onTool={setTool} brush={brushInfo}
-          canUndo={history.canUndo} canRedo={history.canRedo} onUndo={history.undo} onRedo={history.redo} onFlip={flip}
+          compact={compact} tool={tool} onTool={chooseTool} brush={brushInfo}
+          canUndo={history.canUndo} canRedo={history.canRedo}
+          onUndo={() => { history.undo(); setSelection(null) }} onRedo={() => { history.redo(); setSelection(null) }} onFlip={flip}
+          selectedCount={selection ? selection.filter(Boolean).length : 0}
+          onDeselect={() => setSelection(null)} onDeleteSelection={deleteSelected}
         />
         {compact && (
           <div className="fullscreen-colours">
@@ -385,6 +411,10 @@ export default function ImportPatternPage() {
                 onPaintStart={() => history.checkpoint()}
                 onPaint={paintCell}
                 onCellTap={tapCell}
+                selecting={tool === "select"}
+                selection={selection}
+                onSelect={setSelection}
+                onMoveSelection={moveSelected}
                 fullscreenTools={tools(true)}
               />
             ) : (

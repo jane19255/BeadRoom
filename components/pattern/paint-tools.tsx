@@ -1,13 +1,16 @@
 "use client"
 
-export type PaintTool = "move" | "paint" | "fill" | "erase" | "pick"
+import { Icon, type IconName } from "@/components/icon"
 
-const TOOLS: { id: PaintTool; label: string; icon: string; hint: string }[] = [
-  { id: "move", label: "Move", icon: "✋", hint: "Pan and zoom only" },
-  { id: "paint", label: "Paint", icon: "✏️", hint: "Tap or draw to paint cells with the selected colour" },
-  { id: "fill", label: "Fill", icon: "🪣", hint: "Fill an area of the same colour" },
-  { id: "erase", label: "Erase", icon: "⌫", hint: "Make cells empty (no bead)" },
-  { id: "pick", label: "Pick", icon: "💧", hint: "Tap a cell to use its colour" },
+export type PaintTool = "move" | "paint" | "fill" | "erase" | "pick" | "select"
+
+const TOOLS: { id: PaintTool; label: string; icon: IconName; hint: string }[] = [
+  { id: "move", label: "Move", icon: "hand", hint: "Pan and zoom only" },
+  { id: "paint", label: "Paint", icon: "pencil", hint: "Tap or draw to paint cells with the selected colour" },
+  { id: "fill", label: "Fill", icon: "bucket", hint: "Fill an area of the same colour" },
+  { id: "erase", label: "Erase", icon: "eraser", hint: "Make cells empty (no bead)" },
+  { id: "pick", label: "Pick", icon: "pipette", hint: "Tap a cell to use its colour" },
+  { id: "select", label: "Select", icon: "lasso", hint: "Draw a loop around cells, then drag them to move" },
 ]
 
 type Props = {
@@ -20,12 +23,17 @@ type Props = {
   onUndo: () => void
   onRedo: () => void
   onFlip: () => void
+  /** Cells currently selected with the Select tool (shows Deselect / Delete). */
+  selectedCount?: number
+  onDeselect?: () => void
+  onDeleteSelection?: () => void
   /** Smaller version for the floating bar in full screen. */
   compact?: boolean
 }
 
 /** Drawing tools shared by "Check the pattern" and "Draw a pattern". */
-export function PaintTools({ tool, onTool, brush, canUndo, canRedo, onUndo, onRedo, onFlip, compact }: Props) {
+export function PaintTools(props: Props) {
+  const { tool, onTool, brush, canUndo, canRedo, onUndo, onRedo, onFlip, selectedCount = 0, onDeselect, onDeleteSelection, compact } = props
   return (
     <div className={`paint-tools ${compact ? "paint-tools--compact" : ""}`} role="toolbar" aria-label="Drawing tools">
       <span className="paint-tools__brush" title={brush ? `Selected colour ${brush.code}` : "No colour selected"}>
@@ -37,18 +45,41 @@ export function PaintTools({ tool, onTool, brush, canUndo, canRedo, onUndo, onRe
           key={t.id}
           className={`paint-tools__tool ${tool === t.id ? "is-on" : ""}`}
           title={t.hint}
+          aria-label={t.label}
           aria-pressed={tool === t.id}
           onClick={() => onTool(t.id)}
           type="button"
         >
-          <span aria-hidden="true">{t.icon}</span>
-          {!compact && t.label}
+          <Icon name={t.icon} size={17} />
+          {!compact && <span>{t.label}</span>}
         </button>
       ))}
       <span className="paint-tools__sep" aria-hidden="true" />
-      <button className="paint-tools__tool" disabled={!canUndo} onClick={onUndo} title="Undo" aria-label="Undo" type="button">↶{!compact && " Undo"}</button>
-      <button className="paint-tools__tool" disabled={!canRedo} onClick={onRedo} title="Redo" aria-label="Redo" type="button">↷{!compact && " Redo"}</button>
-      <button className="paint-tools__tool" onClick={onFlip} title="Flip the whole pattern left ↔ right" aria-label="Flip horizontally" type="button">⇋{!compact && " Flip"}</button>
+      <button className="paint-tools__tool" disabled={!canUndo} onClick={onUndo} title="Undo" aria-label="Undo" type="button">
+        <Icon name="undo" size={17} />{!compact && <span>Undo</span>}
+      </button>
+      <button className="paint-tools__tool" disabled={!canRedo} onClick={onRedo} title="Redo" aria-label="Redo" type="button">
+        <Icon name="redo" size={17} />{!compact && <span>Redo</span>}
+      </button>
+      <button className="paint-tools__tool" onClick={onFlip} title="Flip the whole pattern left ↔ right" aria-label="Flip horizontally" type="button">
+        <Icon name="flip" size={17} />{!compact && <span>Flip</span>}
+      </button>
+      {selectedCount > 0 && (
+        <>
+          <span className="paint-tools__sep" aria-hidden="true" />
+          <span className="paint-tools__selection">{selectedCount} selected</span>
+          {onDeleteSelection && (
+            <button className="paint-tools__tool" onClick={onDeleteSelection} title="Remove the selected beads" aria-label="Delete selection" type="button">
+              <Icon name="trash" size={17} />{!compact && <span>Delete</span>}
+            </button>
+          )}
+          {onDeselect && (
+            <button className="paint-tools__tool" onClick={onDeselect} title="Deselect" aria-label="Deselect" type="button">
+              <Icon name="close" size={17} />{!compact && <span>Deselect</span>}
+            </button>
+          )}
+        </>
+      )}
     </div>
   )
 }

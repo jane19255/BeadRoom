@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
 import { hexToRgb, luminance } from "@/lib/pattern/decode"
-import { cellsBetween } from "@/lib/pattern/edit"
+import { cellsBetween, cellsInsideLoop, selectionLimits } from "@/lib/pattern/edit"
 
 export type GridCanvasProps = {
   cols: number
@@ -34,6 +34,14 @@ export type GridCanvasProps = {
   painting?: boolean
   onPaintStart?: () => void
   onPaint?: (index: number) => void
+  /**
+   * Select mode: draw a loop to select cells (onSelect), drag inside the selection to move it
+   * (onMoveSelection with how many columns/rows it moved). Two fingers still pan and zoom.
+   */
+  selecting?: boolean
+  selection?: boolean[] | null
+  onSelect?: (mask: boolean[] | null) => void
+  onMoveSelection?: (dc: number, dr: number) => void
   /** Shown floating over the grid in full screen (e.g. colour + undo while drawing). */
   fullscreenTools?: ReactNode
 }
@@ -51,7 +59,11 @@ function mix(hex: string, amount: number): string {
 }
 
 export function GridCanvas(props: GridCanvasProps) {
-  const { cols, rows, cells, colours, codes, focus = null, done, flagged, currentRow = null, onCellTap, fitKey, painting = false, onPaintStart, onPaint, fullscreenTools } = props
+  const { cols, rows, cells, colours, codes, focus = null, done, flagged, currentRow = null, onCellTap, fitKey, painting = false, onPaintStart, onPaint, fullscreenTools,
+    selecting = false, selection = null, onSelect, onMoveSelection } = props
+  // Select tool: the loop being drawn (cell units) and how far the selection is being dragged.
+  const [lasso, setLasso] = useState<{ x: number; y: number }[] | null>(null)
+  const [dragBy, setDragBy] = useState<{ dc: number; dr: number } | null>(null)
   const guide = props.guide ?? { size: 5, col: Math.floor((cols % 5) / 2), row: Math.floor((rows % 5) / 2) }
   // Is the line before cell `n` (0..count) a thick one? Outer edges always are.
   const isMajor = (n: number, count: number, offset: number) =>
@@ -184,6 +196,57 @@ export function GridCanvas(props: GridCanvasProps) {
       ctx.fillRect(ox + c0 * s, Math.round(oy + r * s) - w / 2, (c1 - c0) * s, w)
     }
 
+    // Select tool: while dragging, the selected cells are drawn at their new place (their old
+    // place looks empty); a dashed outline marks the selection; the loop being drawn is shown.
+    if (selection && selection.some(Boolean)) {
+      const dc = dragBy?.dc ?? 0, dr = dragBy?.dr ?? 0
+      if (dc || dr) {
+        selection.forEach((m, i) => {
+          if (!m) return
+          const r = Math.floor(i / cols), c = i % cols
+          ctx.fillStyle = "#e4e4de"
+          ctx.fillRect(ox + c * s, oy + r * s, s + 0.5, s + 0.5)
+        })
+        selection.forEach((m, i) => {
+          if (!m || cells[i] < 0) return
+          const r = Math.floor(i / cols) + dr, c = (i % cols) + dc
+          ctx.globalAlpha = 0.92
+          ctx.fillStyle = colours[cells[i]]
+          ctx.fillRect(ox + c * s, oy + r * s, s + 0.5, s + 0.5)
+          ctx.globalAlpha = 1
+        })
+      }
+      ctx.lineWidth = 2
+      for (const [colour, dash] of [["#ffffff", [] as number[]], ["#1a6dd6", [5, 4]]] as const) {
+        ctx.strokeStyle = colour
+        ctx.setLineDash(dash)
+        ctx.beginPath()
+        selection.forEach((m, i) => {
+          if (!m) return
+          const r = Math.floor(i / cols), c = i % cols
+          const x = ox + (c + dc) * s, y = oy + (r + dr) * s
+          if (r === 0 || !selection[i - cols]) { ctx.moveTo(x, y); ctx.lineTo(x + s, y) }
+          if (r === rows - 1 || !selection[i + cols]) { ctx.moveTo(x, y + s); ctx.lineTo(x + s, y + s) }
+          if (c === 0 || !selection[i - 1]) { ctx.moveTo(x, y); ctx.lineTo(x, y + s) }
+          if (c === cols - 1 || !selection[i + 1]) { ctx.moveTo(x + s, y); ctx.lineTo(x + s, y + s) }
+        })
+        ctx.stroke()
+      }
+      ctx.setLineDash([])
+    }
+    if (lasso && lasso.length > 1) {
+      ctx.lineWidth = 2
+      ctx.strokeStyle = "#1a6dd6"
+      ctx.setLineDash([6, 4])
+      ctx.fillStyle = "rgba(26,109,214,0.08)"
+      ctx.beginPath()
+      lasso.forEach((p, k) => (k ? ctx.lineTo(ox + p.x * s, oy + p.y * s) : ctx.moveTo(ox + p.x * s, oy + p.y * s)))
+      ctx.closePath()
+      ctx.fill()
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
+
     // Cells worth checking.
     if (flagged) {
       ctx.strokeStyle = "#e0322b"
@@ -228,7 +291,7 @@ export function GridCanvas(props: GridCanvasProps) {
       ctx.fillStyle = r === currentRow ? "#b07a00" : start ? "#20251f" : "#9a9f97"
       ctx.fillText(String(n), AXIS / 2, oy + r * s + s / 2)
     }
-  }, [view, size, cols, rows, cells, colours, codes, focus, done, flagged, currentRow, guide.size, guide.col, guide.row, guide.color]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [view, size, cols, rows, cells, colours, codes, focus, done, flagged, currentRow, guide.size, guide.col, guide.row, guide.color, selection, dragBy, lasso]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---------------------------- interaction ---------------------------- */
   const pointers = useRef(new Map<number, { x: number; y: number }>())
@@ -236,6 +299,17 @@ export function GridCanvas(props: GridCanvasProps) {
   // Painting: which pointer is drawing, and the last cell it painted.
   const stroke = useRef<{ id: number; last: { c: number; r: number } | null } | null>(null)
   const penSeen = useRef(false)
+  // Select tool gesture: drawing a loop, or dragging the selection.
+  const selectGesture = useRef<
+    | { id: number; kind: "loop"; points: { x: number; y: number }[] }
+    | { id: number; kind: "drag"; start: { c: number; r: number }; limits: ReturnType<typeof selectionLimits>; dc: number; dr: number }
+    | null
+  >(null)
+
+  function toGrid(p: { x: number; y: number }) {
+    const v = viewRef.current
+    return { x: (p.x - v.x) / v.scale, y: (p.y - v.y) / v.scale }
+  }
 
   function local(e: { clientX: number; clientY: number }) {
     const rect = canvasRef.current!.getBoundingClientRect()
@@ -261,6 +335,21 @@ export function GridCanvas(props: GridCanvasProps) {
     e.currentTarget.setPointerCapture(e.pointerId)
     const p = local(e)
     if (e.pointerType === "pen") penSeen.current = true
+    // Select tool: one pointer draws a loop, or drags the selection if it starts inside it.
+    const canSelect = selecting && onSelect && (e.pointerType !== "touch" || !penSeen.current)
+    if (canSelect && pointers.current.size === 0) {
+      pointers.current.set(e.pointerId, p)
+      const cell = cellAt(p)
+      const g = toGrid(p)
+      if (cell && selection?.[cell.r * cols + cell.c] && onMoveSelection) {
+        selectGesture.current = { id: e.pointerId, kind: "drag", start: cell, limits: selectionLimits(selection, cols, rows), dc: 0, dr: 0 }
+      } else {
+        selectGesture.current = { id: e.pointerId, kind: "loop", points: [g] }
+        setLasso([g])
+      }
+      gesture.current = { moved: true, startX: p.x, startY: p.y, dist: 0, mid: p }
+      return
+    }
     // Paint with Pencil / mouse, or a finger when no Pencil has been used. A second finger turns it into a pan/zoom.
     const canPaint = painting && onPaint && (e.pointerType !== "touch" || !penSeen.current)
     if (canPaint && pointers.current.size === 0) {
@@ -271,11 +360,12 @@ export function GridCanvas(props: GridCanvasProps) {
       gesture.current = { moved: true, startX: p.x, startY: p.y, dist: 0, mid: p }
       return
     }
-    if (e.pointerType === "pen" && painting) return // never pan with the Pencil while painting
+    if (e.pointerType === "pen" && (painting || selecting)) return // never pan with the Pencil while drawing
     pointers.current.set(e.pointerId, p)
     if (pointers.current.size === 1) gesture.current = { moved: false, startX: p.x, startY: p.y, dist: 0, mid: p }
     if (pointers.current.size === 2) {
-      stroke.current = null // second finger: stop painting, start pan/zoom
+      stroke.current = null // second finger: stop painting / selecting, start pan/zoom
+      if (selectGesture.current) { selectGesture.current = null; setLasso(null); setDragBy(null) }
       const [a, b] = [...pointers.current.values()]
       gesture.current = { moved: true, startX: 0, startY: 0, dist: Math.hypot(a.x - b.x, a.y - b.y), mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } }
     }
@@ -287,6 +377,20 @@ export function GridCanvas(props: GridCanvasProps) {
     const p = local(e)
     pointers.current.set(e.pointerId, p)
     if (stroke.current?.id === e.pointerId) { paintTo(p); return }
+    const sel = selectGesture.current
+    if (sel?.id === e.pointerId) {
+      const g = toGrid(p)
+      if (sel.kind === "loop") {
+        const last = sel.points[sel.points.length - 1]
+        if (Math.hypot(g.x - last.x, g.y - last.y) > 0.15) { sel.points.push(g); setLasso([...sel.points]) }
+      } else {
+        const L = sel.limits
+        sel.dc = Math.max(L.minDc, Math.min(L.maxDc, Math.floor(g.x) - sel.start.c))
+        sel.dr = Math.max(L.minDr, Math.min(L.maxDr, Math.floor(g.y) - sel.start.r))
+        setDragBy({ dc: sel.dc, dr: sel.dr })
+      }
+      return
+    }
     if (pointers.current.size === 1) {
       if (!gesture.current.moved && Math.hypot(p.x - gesture.current.startX, p.y - gesture.current.startY) < 6) return
       gesture.current.moved = true
@@ -312,6 +416,31 @@ export function GridCanvas(props: GridCanvasProps) {
     const wasTap = pointers.current.size === 1 && gesture.current && !gesture.current.moved && !stroke.current
     pointers.current.delete(e.pointerId)
     if (stroke.current?.id === e.pointerId) stroke.current = null
+    const sel = selectGesture.current
+    if (sel?.id === e.pointerId) {
+      selectGesture.current = null
+      if (sel.kind === "drag") {
+        if (sel.dc || sel.dr) onMoveSelection?.(sel.dc, sel.dr)
+        setDragBy(null)
+      } else {
+        setLasso(null)
+        const pts = sel.points
+        let length = 0
+        for (let k = 1; k < pts.length; k++) length += Math.hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y)
+        if (length < 0.6) {
+          // A tap: select just that cell (or clear the selection outside the grid).
+          const c = Math.floor(pts[0].x), r = Math.floor(pts[0].y)
+          if (c >= 0 && r >= 0 && c < cols && r < rows) {
+            const mask = new Array<boolean>(cols * rows).fill(false)
+            mask[r * cols + c] = true
+            onSelect?.(mask)
+          } else onSelect?.(null)
+        } else {
+          const mask = cellsInsideLoop(pts, cols, rows)
+          onSelect?.(mask.some(Boolean) ? mask : null)
+        }
+      }
+    }
     if (pointers.current.size === 0) {
       if (wasTap && onCellTap) {
         const cell = cellAt(local(e))
@@ -391,7 +520,7 @@ export function GridCanvas(props: GridCanvasProps) {
   }, [])
 
   return (
-    <div className={`grid-canvas ${full ? "grid-canvas--full" : ""} ${painting ? "grid-canvas--painting" : ""}`} ref={wrapRef}>
+    <div className={`grid-canvas ${full ? "grid-canvas--full" : ""} ${painting || selecting ? "grid-canvas--painting" : ""}`} ref={wrapRef}>
       <canvas
         ref={canvasRef}
         style={{ width: size.w, height: size.h }}

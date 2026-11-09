@@ -12,7 +12,7 @@ import { SizeInput } from "@/components/pattern/size-input"
 import { useCellHistory } from "@/components/pattern/use-cell-history"
 import { useProjects } from "@/components/projects/projects-provider"
 import { EMPTY } from "@/lib/pattern/decode"
-import { flipHorizontal, floodFill } from "@/lib/pattern/edit"
+import { flipHorizontal, floodFill, moveSelection } from "@/lib/pattern/edit"
 import { savePattern } from "@/lib/pattern/store"
 import { getCategoryNames, getPalette } from "@/lib/supabase/data"
 import type { RecipeRow } from "@/lib/types"
@@ -20,6 +20,9 @@ import type { RecipeRow } from "@/lib/types"
 /** Unfinished drawings are kept on this device so a refresh doesn't lose them. */
 const DRAFT_KEY = "beadroom-draw-draft"
 type Draft = { name: string; category: string; cols: number; rows: number; cells: string[] }
+
+/** Common colours shown first, right after Empty. Every other colour follows in code order. */
+const FAVOURITE_CODES = ["H2", "H7"]
 
 const BOARDS = [
   { label: "29 × 29", cols: 29, rows: 29 },
@@ -71,8 +74,8 @@ export default function DrawPatternPage() {
   const cells = history.cells
   const [tool, setTool] = useState<PaintTool>("paint")
   const [brush, setBrush] = useState<number | null>(null)
-  const [recent, setRecent] = useState<number[]>([])
-  const [search, setSearch] = useState("")
+  // Select tool: which cells are selected (null = none).
+  const [selection, setSelection] = useState<boolean[] | null>(null)
   const [highlight, setHighlight] = useState(false)
   const [saving, setSaving] = useState(false)
   const [hasDraft, setHasDraft] = useState(false)
@@ -93,6 +96,15 @@ export default function DrawPatternPage() {
   }, [])
 
   const indexByCode = useMemo(() => new Map((palette ?? []).map((p, i) => [p.code.toUpperCase(), i])), [palette])
+  // Fixed colour order: H2, H7, then everything else by code (A1, A2, … B1, …). Nothing moves around.
+  const favourites = useMemo(
+    () => FAVOURITE_CODES.map((code) => indexByCode.get(code)).filter((i): i is number => i !== undefined),
+    [indexByCode],
+  )
+  const otherColours = useMemo(
+    () => (palette ?? []).map((_, i) => i).filter((i) => !favourites.includes(i)),
+    [palette, favourites],
+  )
 
   // Keep the drawing on this device while working on it.
   useEffect(() => {
@@ -116,11 +128,6 @@ export default function DrawPatternPage() {
   const totalBeads = used.reduce((s, [, n]) => s + n, 0)
   useUnsavedChangesWarning(step === "draw" && totalBeads > 0 && !saving)
 
-  const shown = useMemo(() => {
-    if (!palette) return []
-    const q = search.trim().toUpperCase()
-    return palette.map((p, i) => ({ p, i })).filter(({ p }) => !q || p.code.toUpperCase().includes(q))
-  }, [palette, search])
 
   if (!palette) return <LoadingOverlay message="Loading your colours…" />
 
@@ -154,8 +161,7 @@ export default function DrawPatternPage() {
 
   function selectBrush(i: number) {
     setBrush(i)
-    if (tool !== "fill") setTool(i === EMPTY ? "erase" : "paint")
-    if (i >= 0) setRecent((r) => [i, ...r.filter((x) => x !== i)].slice(0, 10))
+    if (tool !== "fill") chooseTool(i === EMPTY ? "erase" : "paint")
   }
 
   function paintCell(i: number) {
@@ -178,7 +184,27 @@ export default function DrawPatternPage() {
   function flip() {
     history.checkpoint()
     history.change((cur) => flipHorizontal(cur, cols, rows))
+    setSelection(null)
   }
+
+  /* Select tool */
+  function chooseTool(next: PaintTool) {
+    setTool(next)
+    if (next !== "select") setSelection(null)
+  }
+  function moveSelected(dc: number, dr: number) {
+    if (!selection) return
+    const moved = moveSelection(cells, selection, cols, rows, dc, dr, EMPTY)
+    history.checkpoint()
+    history.change(() => moved.cells)
+    setSelection(moved.mask)
+  }
+  function deleteSelected() {
+    if (!selection) return
+    history.checkpoint()
+    history.change((cur) => cur.map((v, i) => (selection[i] ? EMPTY : v)))
+  }
+  const selectedCount = selection ? selection.filter(Boolean).length : 0
 
   async function save() {
     if (!palette) return
@@ -207,12 +233,18 @@ export default function DrawPatternPage() {
   const tools = (compact: boolean) => (
     <>
       <PaintTools
-        compact={compact} tool={tool} onTool={setTool} brush={brushInfo}
-        canUndo={history.canUndo} canRedo={history.canRedo} onUndo={history.undo} onRedo={history.redo} onFlip={flip}
+        compact={compact} tool={tool} onTool={chooseTool} brush={brushInfo}
+        canUndo={history.canUndo} canRedo={history.canRedo}
+        onUndo={() => { history.undo(); setSelection(null) }} onRedo={() => { history.redo(); setSelection(null) }} onFlip={flip}
+        selectedCount={selectedCount} onDeselect={() => setSelection(null)} onDeleteSelection={deleteSelected}
       />
-      {compact && (recent.length > 0 || used.length > 0) && (
-        <div className="fullscreen-colours">
-          {[...new Set([...recent, ...used.map(([i]) => i)])].slice(0, 16).map((i) => (
+      {compact && (
+        <div className="fullscreen-colours fullscreen-colours--all">
+          {/* Every colour, same fixed order as the main bar: Empty, H2, H7, then by code */}
+          <button className={brush === EMPTY ? "is-on" : undefined} onClick={() => selectBrush(EMPTY)} type="button">
+            <i className="colour-dot--empty" />Empty
+          </button>
+          {[...favourites, ...otherColours].map((i) => (
             <button key={i} className={brush === i ? "is-on" : undefined} onClick={() => selectBrush(i)} type="button">
               <i style={{ background: palette[i].colour }} />{palette[i].code}
             </button>
@@ -305,7 +337,25 @@ export default function DrawPatternPage() {
         </div>
       </section>
 
-      {tools(false)}
+      {/* Tools and colours together (stays at the top while scrolling), so switching
+          between a colour and Erase never needs scrolling. */}
+      <div className="draw-toolbar">
+        {tools(false)}
+        <div className="draw-colours" role="listbox" aria-label="Colours">
+          <button className={brush === EMPTY ? "is-on" : undefined} onClick={() => selectBrush(EMPTY)} type="button">
+            <i className="colour-dot--empty" />Empty
+          </button>
+          {[...favourites, ...otherColours].map((i) => (
+            <button key={palette[i].code} className={brush === i ? "is-on" : undefined} onClick={() => selectBrush(i)} type="button">
+              <i style={{ background: palette[i].colour }} />{palette[i].code}
+            </button>
+          ))}
+        </div>
+        <label className="pattern-key__highlight draw-toolbar__highlight">
+          <input type="checkbox" checked={highlight} onChange={(e) => setHighlight(e.target.checked)} />
+          Highlight the selected colour
+        </label>
+      </div>
 
       <div className="draw-layout">
         <div className="draw-stage" style={{ aspectRatio: `${cols + 2} / ${rows + 2}` }}>
@@ -318,44 +368,15 @@ export default function DrawPatternPage() {
             onPaintStart={() => history.checkpoint()}
             onPaint={paintCell}
             onCellTap={tapCell}
+            selecting={tool === "select"}
+            selection={selection}
+            onSelect={setSelection}
+            onMoveSelection={moveSelected}
             fullscreenTools={tools(true)}
           />
         </div>
 
         <aside className="draw-panel">
-          <div className="detail-card">
-            <h2>Colours</h2>
-            <input
-              className="draw-panel__search"
-              placeholder="Find a colour code…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            {recent.length > 0 && !search && (
-              <div className="draw-panel__recent">
-                {recent.map((i) => (
-                  <button key={i} className={brush === i ? "is-on" : undefined} title={palette[i].code} onClick={() => selectBrush(i)} type="button">
-                    <i style={{ background: palette[i].colour }} />
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="draw-panel__palette">
-              <button className={brush === EMPTY ? "is-on" : undefined} onClick={() => selectBrush(EMPTY)} type="button">
-                <i className="colour-dot--empty" />Empty
-              </button>
-              {shown.map(({ p, i }) => (
-                <button key={p.code} className={brush === i ? "is-on" : undefined} onClick={() => selectBrush(i)} type="button">
-                  <i style={{ background: p.colour }} />{p.code}
-                </button>
-              ))}
-            </div>
-            <label className="pattern-key__highlight" style={{ marginTop: 10 }}>
-              <input type="checkbox" checked={highlight} onChange={(e) => setHighlight(e.target.checked)} />
-              Highlight the selected colour
-            </label>
-          </div>
-
           <div className="detail-card">
             <h2>Bead recipe</h2>
             <p className="pattern-hint" style={{ marginTop: 0 }}>Counted from your drawing. Saved with the project.</p>

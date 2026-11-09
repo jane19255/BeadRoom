@@ -5965,3 +5965,56 @@ button:disabled .spinner { opacity: 0.9; }
   .draw-layout { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; }
   .draw-panel { position: sticky; top: 20px; }
 }
+
+/* ---------- Draw page: tools + colours bar ---------- */
+.draw-toolbar {
+  position: sticky;
+  z-index: 6;
+  top: 0;
+  margin: 0 -8px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--canvas, #f3f1ea);
+  padding: 8px;
+}
+
+.draw-toolbar .paint-tools { margin-bottom: 8px; }
+
+/* All colours in a strip of 3 rows that scrolls sideways */
+.draw-colours {
+  display: grid;
+  grid-auto-columns: max-content;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(3, auto);
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.draw-colours button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+  padding: 5px 8px 5px 5px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.draw-colours button.is-on { border-color: var(--green); box-shadow: inset 0 0 0 1px var(--green); background: var(--green-soft); }
+.draw-colours i { width: 16px; height: 16px; flex: none; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
+.draw-toolbar__highlight { margin: 6px 0 0; }
+
+.paint-tools__tool .icon { width: 17px; height: 17px; }
+.paint-tools__selection { color: #1a6dd6; font-size: 12px; font-weight: 700; }
+
+/* Full screen (Draw page): all colours in 2 rows that scroll sideways */
+.fullscreen-colours--all {
+  display: grid;
+  grid-auto-columns: max-content;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(2, auto);
+  max-width: min(760px, calc(100vw - 140px));
+}
