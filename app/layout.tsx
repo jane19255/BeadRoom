@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google"
 import "./globals.css"
 import "./beadroom.css"
 import { AppShell } from "@/components/app-shell"
+import { AuthGate } from "@/components/auth-gate"
 import { Toaster } from "@/components/feedback"
 import { ProjectsProvider } from "@/components/projects/projects-provider"
 import { ThemeProvider } from "@/components/theme-provider"
@@ -46,9 +47,11 @@ export default function RootLayout({
     >
       <body>
         <ThemeProvider>
-          <ProjectsProvider>
-            <AppShell>{children}</AppShell>
-          </ProjectsProvider>
+          <AuthGate>
+            <ProjectsProvider>
+              <AppShell>{children}</AppShell>
+            </ProjectsProvider>
+          </AuthGate>
           <Toaster />
         </ThemeProvider>
       </body>

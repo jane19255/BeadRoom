@@ -127,3 +127,10 @@
     @apply font-sans;
     }
 }
+
+.project-image-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    opacity: 0.6;
+  }

@@ -6063,3 +6063,142 @@ button:disabled .spinner { opacity: 0.9; }
 .bead-mode__row.bead-mode__row--view {
   grid-template-columns: 40px minmax(0, 1fr) 40px;
 }
+
+/* ------------------------------------------------------------------ */
+/* Login                                                               */
+/* ------------------------------------------------------------------ */
+.login-screen {
+  display: grid;
+  min-height: 100vh;
+  min-height: 100dvh;
+  place-items: center;
+  background: var(--canvas);
+  padding: 24px 16px;
+}
+
+.login-card {
+  display: grid;
+  width: min(100%, 380px);
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  padding: 28px 24px 24px;
+  box-shadow: var(--shadow);
+}
+
+.login-card__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.login-card h1 {
+  margin: 6px 0 0;
+  font-weight: 700;
+  font-size: 24px;
+  letter-spacing: -0.02em;
+}
+
+.login-card__hint {
+  margin: -6px 0 4px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.login-card__field {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.login-card__field input {
+  height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 0 12px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px; /* 16px stops iPhone/iPad zooming in on focus */
+  font-weight: 400;
+}
+
+.login-card__field input:focus {
+  border-color: var(--green);
+  outline: 2px solid var(--green-soft);
+  background: var(--surface);
+}
+
+.login-card__error {
+  margin: 0;
+  border-radius: 8px;
+  background: #fbe9e7;
+  color: #a5352a;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.login-card__submit {
+  display: inline-flex;
+  width: 100%;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.login-card__submit:disabled {
+  opacity: 0.75;
+  transform: none;
+  cursor: wait;
+}
+
+/* Sign out: bottom of the sidebar; small icon at the end of the bottom bar on phones */
+.sidebar-footer {
+  margin-top: auto;
+}
+
+.nav-item--signout {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  text-align: left;
+}
+
+.nav-item--signout:hover {
+  color: var(--ink);
+}
+
+@media (max-width: 650px) {
+  .sidebar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 48px;
+    gap: 8px;
+  }
+
+  .sidebar-footer {
+    margin: 0;
+  }
+
+  .sidebar .nav-item--signout {
+    width: 48px;
+    padding: 0;
+  }
+
+  .sidebar .nav-item--signout span {
+    display: none;
+  }
+}

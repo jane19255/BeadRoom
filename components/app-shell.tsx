@@ -2,12 +2,15 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import type { ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 import { Icon } from "@/components/icon"
+import { ConfirmDialog } from "@/components/confirm-dialog"
+import { supabase } from "@/lib/supabase/client"
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const onInventory = pathname.startsWith("/inventory")
+  const [confirmSignOut, setConfirmSignOut] = useState(false)
 
   return (
     <div className="app-shell">
@@ -42,9 +45,26 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Link>
           </nav>
         </div>
+
+        <div className="sidebar-footer">
+          <button className="nav-item nav-item--signout" onClick={() => setConfirmSignOut(true)} title="Sign out" aria-label="Sign out" type="button">
+            <Icon name="logout" />
+            <span>Sign out</span>
+          </button>
+        </div>
       </aside>
 
       <main>{children}</main>
+
+      {confirmSignOut && (
+        <ConfirmDialog
+          title="Sign out?"
+          message="You'll need your email and password to get back in."
+          confirmLabel="Sign out"
+          onCancel={() => setConfirmSignOut(false)}
+          onConfirm={() => { setConfirmSignOut(false); void supabase.auth.signOut() }}
+        />
+      )}
     </div>
   )
 }

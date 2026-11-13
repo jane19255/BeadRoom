@@ -3,7 +3,7 @@ import type { ReactNode } from "react"
 export type IconName =
   | "grid" | "palette" | "spark" | "search" | "plus" | "chevron" | "check" | "box" | "more" | "list" | "close"
   // drawing tools
-  | "hand" | "pencil" | "bucket" | "eraser" | "pipette" | "lasso" | "undo" | "redo" | "flip" | "trash" | "rotate-cw" | "rotate-ccw"
+  | "hand" | "pencil" | "bucket" | "eraser" | "pipette" | "lasso" | "undo" | "redo" | "flip" | "trash" | "rotate-cw" | "rotate-ccw" | "logout"
 
 type IconProps = {
   name: IconName
@@ -73,6 +73,12 @@ export function Icon({ name, size = 16 }: IconProps) {
       <>
         <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
         <path d="M3 3v5h5" />
+      </>
+    ),
+    logout: (
+      <>
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+        <path d="m16 17 5-5-5-5M21 12H9" />
       </>
     ),
     trash: (
