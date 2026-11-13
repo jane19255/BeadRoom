@@ -27,13 +27,15 @@ type Props = {
   selectedCount?: number
   onDeselect?: () => void
   onDeleteSelection?: () => void
+  /** Turn the selected cells a quarter turn (1 = clockwise, -1 = anticlockwise). */
+  onRotateSelection?: (dir: 1 | -1) => void
   /** Smaller version for the floating bar in full screen. */
   compact?: boolean
 }
 
 /** Drawing tools shared by "Check the pattern" and "Draw a pattern". */
 export function PaintTools(props: Props) {
-  const { tool, onTool, brush, canUndo, canRedo, onUndo, onRedo, onFlip, selectedCount = 0, onDeselect, onDeleteSelection, compact } = props
+  const { tool, onTool, brush, canUndo, canRedo, onUndo, onRedo, onFlip, selectedCount = 0, onDeselect, onDeleteSelection, onRotateSelection, compact } = props
   return (
     <div className={`paint-tools ${compact ? "paint-tools--compact" : ""}`} role="toolbar" aria-label="Drawing tools">
       <span className="paint-tools__brush" title={brush ? `Selected colour ${brush.code}` : "No colour selected"}>
@@ -68,6 +70,16 @@ export function PaintTools(props: Props) {
         <>
           <span className="paint-tools__sep" aria-hidden="true" />
           <span className="paint-tools__selection">{selectedCount} selected</span>
+          {onRotateSelection && (
+            <>
+              <button className="paint-tools__tool" onClick={() => onRotateSelection(-1)} title="Rotate the selection anticlockwise" aria-label="Rotate selection left" type="button">
+                <Icon name="rotate-ccw" size={17} />{!compact && <span>Rotate left</span>}
+              </button>
+              <button className="paint-tools__tool" onClick={() => onRotateSelection(1)} title="Rotate the selection clockwise" aria-label="Rotate selection right" type="button">
+                <Icon name="rotate-cw" size={17} />{!compact && <span>Rotate right</span>}
+              </button>
+            </>
+          )}
           {onDeleteSelection && (
             <button className="paint-tools__tool" onClick={onDeleteSelection} title="Remove the selected beads" aria-label="Delete selection" type="button">
               <Icon name="trash" size={17} />{!compact && <span>Delete</span>}

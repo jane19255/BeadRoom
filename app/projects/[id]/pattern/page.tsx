@@ -46,6 +46,7 @@ export default function BeadModePage() {
   const params = useParams<{ id: string }>()
   const { projects, loading: projectsLoading } = useProjects()
   const project = projects.find((item) => String(item.id) === params.id)
+  const readOnly = project?.status === "Completed"
   const projectId = Number(params.id)
 
   const [pattern, setPattern] = useState<StoredPattern | null>(null)
@@ -115,7 +116,7 @@ export default function BeadModePage() {
   latest.current = { done, currentRow }
   const firstRender = useRef(true)
   useEffect(() => {
-    if (firstRender.current || !pattern) { firstRender.current = !pattern; return }
+    if (firstRender.current || !pattern || readOnly) { firstRender.current = !pattern; return }
     setSaveState("pending")
     window.clearTimeout(timer.current)
     timer.current = window.setTimeout(async () => {
@@ -242,22 +243,29 @@ export default function BeadModePage() {
           cols={cols} rows={rows} cells={legend.cells} colours={legend.colours} codes={legend.codes}
           focus={focus} done={done} currentRow={rowMode ? currentRow : null} fitKey={projectId} guide={guide}
           onCellTap={(i) => {
-            if (tapToMark) { if (legend.cells[i] >= 0) setCells([i], done[i] === "1" ? "0" : "1") }
+            if (tapToMark && !readOnly) { if (legend.cells[i] >= 0) setCells([i], done[i] === "1" ? "0" : "1") }
             else if (rowMode) setCurrentRow(Math.floor(i / cols))
           }}
         />
       </div>
 
       <div className="bead-mode__controls">
+        {readOnly && <p className="readonly-note">Completed project · view only</p>}
         <div className="bead-mode__toggles">
           <button className={rowMode ? "chip chip--on" : "chip"} onClick={() => setRowMode((v) => !v)} type="button">Row by row</button>
-          <button className={tapToMark ? "chip chip--on" : "chip"} onClick={() => setTapToMark((v) => !v)} type="button">
-            {tapToMark ? "Tap marks beads ✓" : "Tap to mark beads"}
-          </button>
+          {!readOnly && (
+            <button className={tapToMark ? "chip chip--on" : "chip"} onClick={() => setTapToMark((v) => !v)} type="button">
+              {tapToMark ? "Tap marks beads ✓" : "Tap to mark beads"}
+            </button>
+          )}
           <button className={showGuide ? "chip chip--on" : "chip"} onClick={() => setShowGuide((v) => !v)} type="button">Grid lines</button>
-          <button className="chip" onClick={() => void flipPattern()} disabled={flipping} title="Mirror the whole pattern left ↔ right" type="button">⇋ Flip</button>
-          <button className="chip" onClick={() => setConfirmReset(true)} type="button">Reset</button>
-          <Link className="chip" href={`/projects/${projectId}/pattern/import`}>Re-import</Link>
+          {!readOnly && (
+            <>
+              <button className="chip" onClick={() => void flipPattern()} disabled={flipping} title="Mirror the whole pattern left ↔ right" type="button">⇋ Flip</button>
+              <button className="chip" onClick={() => setConfirmReset(true)} type="button">Reset</button>
+              <Link className="chip" href={`/projects/${projectId}/pattern/import`}>Re-import</Link>
+            </>
+          )}
         </div>
 
         {showGuide && (
@@ -309,7 +317,7 @@ export default function BeadModePage() {
         )}
 
         {rowMode && (
-          <div className="bead-mode__row">
+          <div className={readOnly ? "bead-mode__row bead-mode__row--view" : "bead-mode__row"}>
             <button aria-label="Previous row" disabled={currentRow === 0} onClick={() => setCurrentRow((r) => Math.max(0, r - 1))} type="button">‹</button>
             <div>
               <strong>Row {currentRow + 1}</strong> <span>of {rows}</span>
@@ -324,7 +332,7 @@ export default function BeadModePage() {
                 ))}
               </p>
             </div>
-            <button
+            {!readOnly && <button
               className="primary-button"
               disabled={rowTargets.length === 0}
               onClick={() => {
@@ -337,7 +345,7 @@ export default function BeadModePage() {
               {rowTargets.length === 0
                 ? focus === null ? "Empty row" : `No ${legend.codes[focus]} in this row`
                 : rowDone ? "Undo" : focus === null ? "Row done ✓" : `${legend.codes[focus]} ×${rowTargets.length} done ✓`}
-            </button>
+            </button>}
             <button aria-label="Next row" disabled={currentRow >= rows - 1} onClick={() => setCurrentRow((r) => Math.min(rows - 1, r + 1))} type="button">›</button>
           </div>
         )}

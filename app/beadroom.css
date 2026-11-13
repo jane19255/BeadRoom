@@ -3897,7 +3897,7 @@ footer {
   border-color: #d5d6d1;
   opacity: 0.62;
   filter: saturate(0.45);
-  cursor: default;
+  cursor: pointer;
 }
 
 .inventory-index {
@@ -3915,6 +3915,7 @@ footer {
 }
 
 .project-card--completed:hover {
+  opacity: 0.85;
   box-shadow: none;
   transform: none;
 }
@@ -6017,4 +6018,48 @@ button:disabled .spinner { opacity: 0.9; }
   grid-auto-flow: column;
   grid-template-rows: repeat(2, auto);
   max-width: min(760px, calc(100vw - 140px));
+}
+
+/* ---------- Fixes (Nov 13) ---------- */
+/* List view: always one project per row (a tablet rule was splitting it into 2 columns). */
+.project-grid.project-grid--list {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Back links: the arrow and the words are one link with a comfortable tap area. It stays the
+   width of its text (not the whole row) and sits above anything that might overlap it. */
+.back-button {
+  position: relative;
+  z-index: 2;
+  gap: 6px;
+  min-height: 36px;
+  margin-top: -6px;
+  margin-bottom: 17px;
+  padding: 6px 10px 6px 0;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.back-button:hover { color: var(--ink); }
+
+.readonly-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #eef0ea;
+  color: #5b6157;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bead-mode__controls .readonly-note {
+  margin: 0 0 8px;
+}
+
+.bead-mode__row.bead-mode__row--view {
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
 }

@@ -1,5 +1,6 @@
 "use client"
 
+import { renderPatternPicture } from "@/lib/pattern/render"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -12,7 +13,7 @@ import { SizeInput } from "@/components/pattern/size-input"
 import { useCellHistory } from "@/components/pattern/use-cell-history"
 import { useProjects } from "@/components/projects/projects-provider"
 import { EMPTY } from "@/lib/pattern/decode"
-import { flipHorizontal, floodFill, moveSelection } from "@/lib/pattern/edit"
+import { flipHorizontal, floodFill, moveSelection, rotateSelection } from "@/lib/pattern/edit"
 import { savePattern } from "@/lib/pattern/store"
 import { getCategoryNames, getPalette } from "@/lib/supabase/data"
 import type { RecipeRow } from "@/lib/types"
@@ -37,26 +38,6 @@ function readDraft(): Draft | null {
   } catch {
     return null
   }
-}
-
-/** Picture of the finished pattern, used as the project's image. */
-function renderPattern(cells: number[], cols: number, rows: number, palette: RecipeRow[]): string {
-  const cell = Math.max(4, Math.floor(1200 / Math.max(cols, rows)))
-  const canvas = document.createElement("canvas")
-  canvas.width = cols * cell
-  canvas.height = rows * cell
-  const ctx = canvas.getContext("2d")!
-  ctx.fillStyle = "#ffffff"
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-  cells.forEach((p, i) => {
-    if (p < 0) return
-    ctx.fillStyle = palette[p]?.colour ?? "#cccccc"
-    ctx.fillRect((i % cols) * cell, Math.floor(i / cols) * cell, cell, cell)
-  })
-  ctx.fillStyle = "rgba(32,37,31,0.12)"
-  for (let c = 1; c < cols; c++) ctx.fillRect(c * cell, 0, 1, canvas.height)
-  for (let r = 1; r < rows; r++) ctx.fillRect(0, r * cell, canvas.width, 1)
-  return canvas.toDataURL("image/png")
 }
 
 export default function DrawPatternPage() {
@@ -199,6 +180,13 @@ export default function DrawPatternPage() {
     history.change(() => moved.cells)
     setSelection(moved.mask)
   }
+  function rotateSelected(dir: 1 | -1) {
+    if (!selection) return
+    const turned = rotateSelection(cells, selection, cols, rows, dir, EMPTY)
+    history.checkpoint()
+    history.change(() => turned.cells)
+    setSelection(turned.mask)
+  }
   function deleteSelected() {
     if (!selection) return
     history.checkpoint()
@@ -213,7 +201,7 @@ export default function DrawPatternPage() {
     if (!totalBeads) { toast.error("Draw at least one bead first"); return }
     setSaving(true)
     const recipe: RecipeRow[] = used.map(([i, count]) => ({ ...palette[i], count }))
-    const image = renderPattern(cells, cols, rows, palette)
+    const image = renderPatternPicture(cols, rows, (i) => (cells[i] < 0 ? null : palette[cells[i]]?.colour ?? "#cccccc")) ?? undefined
     const saved = await createProject({
       name: name.trim(), category: category.trim(), pattern: "default", status: "Not started",
       beads: totalBeads, image, recipe,
@@ -236,7 +224,7 @@ export default function DrawPatternPage() {
         compact={compact} tool={tool} onTool={chooseTool} brush={brushInfo}
         canUndo={history.canUndo} canRedo={history.canRedo}
         onUndo={() => { history.undo(); setSelection(null) }} onRedo={() => { history.redo(); setSelection(null) }} onFlip={flip}
-        selectedCount={selectedCount} onDeselect={() => setSelection(null)} onDeleteSelection={deleteSelected}
+        selectedCount={selectedCount} onDeselect={() => setSelection(null)} onDeleteSelection={deleteSelected} onRotateSelection={rotateSelected}
       />
       {compact && (
         <div className="fullscreen-colours fullscreen-colours--all">

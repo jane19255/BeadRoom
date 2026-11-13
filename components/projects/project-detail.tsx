@@ -11,13 +11,14 @@ import { RecipeImport } from "@/components/projects/recipe-import"
 import { keyOf, splitCode } from "@/lib/beads"
 import { getCategoryNames, getPalette } from "@/lib/supabase/data"
 import { getPattern } from "@/lib/pattern/store"
+import { renderPatternPicture } from "@/lib/pattern/render"
 import type { Project, RecipeRow } from "@/lib/types"
 
 export function ProjectDetail({ project }: { project: Project }) {
   const router = useRouter()
   const {
-    setSelectedKeys, updateProjectStatus, completeProject,
-    updateProjectDetails, updateProjectRecipe, loadProjectImage,
+    setStockCheck, updateProjectStatus, completeProject,
+    updateProjectDetails, updateProjectRecipe, loadProjectImage, updateProjectPicture,
   } = useProjects()
   // The full picture isn't part of the project list (too big); fetch it when the project opens.
   useEffect(() => {
@@ -30,7 +31,10 @@ export function ProjectDetail({ project }: { project: Project }) {
     updateProjectDetails(project, name, category, image)
   const [statusBusy, setStatusBusy] = useState(false)
   // Saved bead pattern (if any): size and progress for the "Bead pattern" card.
-  const [patternInfo, setPatternInfo] = useState<{ cols: number; rows: number; placed: number; beads: number } | null | undefined>(undefined)
+  const [patternInfo, setPatternInfo] = useState<{ cols: number; rows: number; placed: number; beads: number; cells: string[] } | null | undefined>(undefined)
+  const isCompleted = project.status === "Completed" // completed projects are view only
+  const [confirmPatternPicture, setConfirmPatternPicture] = useState(false)
+  const [makingPicture, setMakingPicture] = useState(false)
   useEffect(() => {
     if (!project.id) return
     let cancelled = false
@@ -40,11 +44,28 @@ export function ProjectDetail({ project }: { project: Project }) {
         if (!p) { setPatternInfo(null); return }
         const beads = p.cells.filter((c) => c !== "").length // "" = empty cell, no bead
         const placed = p.cells.filter((c, i) => c !== "" && p.done[i] === "1").length
-        setPatternInfo({ cols: p.cols, rows: p.rows, placed, beads })
+        setPatternInfo({ cols: p.cols, rows: p.rows, placed, beads, cells: p.cells })
       })
       .catch(() => { if (!cancelled) setPatternInfo(null) })
     return () => { cancelled = true }
   }, [project.id])
+  /** Project picture = the saved bead pattern: only the beads, cropped, empty cells see-through. */
+  async function applyPatternPicture() {
+    if (!patternInfo) return
+    setMakingPicture(true)
+    // Bead colours: from the recipe, then the colour inventory for anything not in the recipe.
+    const hex = new Map<string, string>()
+    for (const p of availablePalette) hex.set(p.code.toUpperCase(), p.colour)
+    for (const r of project.recipe ?? []) hex.set(r.code.toUpperCase(), r.colour)
+    const picture = renderPatternPicture(patternInfo.cols, patternInfo.rows, (i) => {
+      const code = patternInfo.cells[i]
+      return code ? hex.get(code.toUpperCase()) ?? "#cccccc" : null
+    })
+    if (!picture) toast.error("The pattern has no beads to make a picture from.")
+    else await updateProjectPicture(project, picture)
+    setMakingPicture(false)
+  }
+
   async function runStatusAction(action: () => Promise<unknown>) {
     setStatusBusy(true)
     await action()
@@ -128,6 +149,11 @@ export function ProjectDetail({ project }: { project: Project }) {
       <Link className="back-button" href="/">
         ←   All projects
       </Link>
+      {isCompleted && (
+        <p className="readonly-note" role="note">
+          <Icon name="check" size={15} /> This project is completed, so it's view only.
+        </p>
+      )}
       <section className={`page-heading detail-heading ${isEditingDetails ? "detail-heading--editing" : ""}`}>
         <div>
           {isEditingDetails ? (
@@ -353,7 +379,8 @@ export function ProjectDetail({ project }: { project: Project }) {
               <button
                 className="primary-button"
                 onClick={() => {
-                  setSelectedKeys([keyOf(project)])
+                  // Check just this project; Back on the stock page returns here.
+                  setStockCheck({ keys: [keyOf(project)], back: { href: `/projects/${project.id}`, label: `Back to ${project.name}` } })
                   router.push("/stock")
                 }}
               >
@@ -387,18 +414,25 @@ export function ProjectDetail({ project }: { project: Project }) {
                   ? "Checking…"
                   : patternInfo
                     ? `${patternInfo.cols} × ${patternInfo.rows} · ${Math.round((patternInfo.placed / Math.max(1, patternInfo.beads)) * 100)}% placed`
-                    : "Import a screenshot to follow the grid while you bead."}
+                    : isCompleted ? "No bead pattern was saved for this project." : "Import a screenshot to follow the grid while you bead."}
               </p>
             </div>
             {patternInfo ? (
-              <Link className="primary-button" href={`/projects/${project.id}/pattern`}>
-                <Icon name="grid" /> Open bead mode
-              </Link>
-            ) : (
+              <>
+                <Link className="primary-button" href={`/projects/${project.id}/pattern`}>
+                  <Icon name="grid" /> {isCompleted ? "View pattern" : "Open bead mode"}
+                </Link>
+                {!isCompleted && (
+                  <button className="outline-button" disabled={makingPicture} onClick={() => setConfirmPatternPicture(true)} type="button">
+                    {makingPicture ? <><Spinner /> Making picture…</> : <><Icon name="palette" /> Use pattern as picture</>}
+                  </button>
+                )}
+              </>
+            ) : !isCompleted ? (
               <Link className="outline-button" href={`/projects/${project.id}/pattern/import`}>
                 <Icon name="plus" /> Import pattern
               </Link>
-            )}
+            ) : null}
           </div>
           {project.status === "Not started" && (
             <button
@@ -420,6 +454,16 @@ export function ProjectDetail({ project }: { project: Project }) {
           )}
         </aside>
       </div>
+      {confirmPatternPicture && (
+        <ConfirmDialog
+          title="Use the bead pattern as the picture?"
+          message="The project picture will be replaced with a picture of the bead pattern (only the beads, with the empty areas see-through)."
+          confirmLabel="Replace picture"
+          confirmClassName="primary-button"
+          onCancel={() => setConfirmPatternPicture(false)}
+          onConfirm={() => { setConfirmPatternPicture(false); void applyPatternPicture() }}
+        />
+      )}
       {deleteRecipeIndex !== null && (
         <ConfirmDialog
           title="Delete recipe colour?"

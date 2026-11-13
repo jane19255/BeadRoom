@@ -11,7 +11,7 @@ import { GridCanvas } from "@/components/pattern/grid-canvas"
 import { PaintTools, type PaintTool } from "@/components/pattern/paint-tools"
 import { SizeInput } from "@/components/pattern/size-input"
 import { useCellHistory } from "@/components/pattern/use-cell-history"
-import { flipHorizontal, floodFill, moveSelection } from "@/lib/pattern/edit"
+import { flipHorizontal, floodFill, moveSelection, rotateSelection } from "@/lib/pattern/edit"
 import { useProjects } from "@/components/projects/projects-provider"
 import {
   EMPTY, decodePattern, guessGridBox, guessGridSize, rgbToHex,
@@ -129,6 +129,15 @@ export default function ImportPatternPage() {
     setSelection(moved.mask)
   }
 
+  function rotateSelected(dir: 1 | -1) {
+    if (!selection) return
+    const turned = rotateSelection(cells, selection, cols, rows, dir, EMPTY)
+    history.checkpoint()
+    history.change(() => turned.cells)
+    setFlagged((cur) => rotateSelection(cur, selection, cols, rows, dir, false).cells)
+    setSelection(turned.mask)
+  }
+
   function deleteSelected() {
     if (!selection) return
     history.checkpoint()
@@ -175,7 +184,7 @@ export default function ImportPatternPage() {
           canUndo={history.canUndo} canRedo={history.canRedo}
           onUndo={() => { history.undo(); setSelection(null) }} onRedo={() => { history.redo(); setSelection(null) }} onFlip={flip}
           selectedCount={selection ? selection.filter(Boolean).length : 0}
-          onDeselect={() => setSelection(null)} onDeleteSelection={deleteSelected}
+          onDeselect={() => setSelection(null)} onDeleteSelection={deleteSelected} onRotateSelection={rotateSelected}
         />
         {compact && (
           <div className="fullscreen-colours">
@@ -196,6 +205,14 @@ export default function ImportPatternPage() {
       <div className="page flow-page">
         <Link className="back-button" href="/">←   All projects</Link>
         <div className="empty-state"><strong>Project not found</strong></div>
+      </div>
+    )
+  }
+  if (project.status === "Completed") {
+    return (
+      <div className="page flow-page">
+        <Link className="back-button" href={`/projects/${project.id}`}>←   Back to {project.name}</Link>
+        <div className="empty-state"><strong>This project is completed</strong><p>Completed projects are view only, so the pattern can't be re-imported.</p></div>
       </div>
     )
   }

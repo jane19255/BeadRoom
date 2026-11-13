@@ -8,14 +8,15 @@ import { compareCodes, keyOf } from "@/lib/beads"
 import { supabase } from "@/lib/supabase/client"
 
 export default function StockCheckPage() {
-  const { projects: allProjects, selectedKeys, loading: projectsLoading } = useProjects()
-  // Selected (not completed) projects; if none are selected, check the first project.
+  const { projects: allProjects, stockCheck, loading: projectsLoading } = useProjects()
+  // The projects chosen for this check (from the list or a project page); if the page was
+  // opened directly (e.g. after a refresh), check the first project.
   const projects = useMemo(() => {
-    const selected = allProjects.filter(
-      (project) => project.status !== "Completed" && selectedKeys.includes(keyOf(project)),
-    )
-    return selected.length ? selected : allProjects.slice(0, 1)
-  }, [allProjects, selectedKeys])
+    const keys = stockCheck?.keys ?? []
+    const chosen = allProjects.filter((project) => project.status !== "Completed" && keys.includes(keyOf(project)))
+    return chosen.length ? chosen : allProjects.slice(0, 1)
+  }, [allProjects, stockCheck])
+  const back = stockCheck?.back ?? { href: "/", label: "Back to projects" }
   const [stockRows, setStockRows] = useState<{ code: string; colour: string; need: number; stock: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +63,7 @@ export default function StockCheckPage() {
   if (projectsLoading) return <LoadingOverlay message="Loading your projects…" />;
   return (
     <div className="page flow-page">
-      <Link className="back-button" href="/">← Back to projects</Link>
+      <Link className="back-button" href={back.href}>← {back.label}</Link>
       <section className="page-heading"><div><h1>A stock check, before you start.</h1><p>Requirements are calculated from the selected projects and compared with live Supabase inventory.</p></div></section>
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className={`check-result ${!loading && !error && sufficient ? "check-result--good" : "check-result--short"}`}>

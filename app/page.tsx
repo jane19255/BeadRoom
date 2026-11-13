@@ -16,7 +16,7 @@ export default function ProjectsPage() {
   const {
     projects, loading: projectsLoading, error: projectsError, categoryItems,
     statusFilter, setStatusFilter, query, setQuery, category, setCategory,
-    view, setView, selectedKeys, setSelectedKeys, notice, setNotice,
+    view, setView, selectedKeys, setSelectedKeys, notice, setNotice, setStockCheck,
     deleteProject,
   } = useProjects()
   const [showCategories, setShowCategories] = useState(false)
@@ -186,7 +186,11 @@ export default function ProjectsPage() {
           </button>
           <button
             className="secondary-button"
-            onClick={() => router.push("/stock")}
+            onClick={() => {
+              setStockCheck({ keys: selectedProjects.map(keyOf), back: { href: "/", label: "Back to projects" } })
+              setSelectedKeys([]) // don't leave projects ticked when coming back
+              router.push("/stock")
+            }}
           >
             <Icon name="check" />
             Check combined stock
@@ -210,8 +214,8 @@ export default function ProjectsPage() {
                 }`}
               key={project.id ?? project.name}
               onClick={() => {
-                if (project.status === "Completed" || !project.id) return
-                router.push(`/projects/${project.id}`)
+                if (!project.id) return
+                router.push(`/projects/${project.id}`) // completed projects open view only
               }}
             >
               <div className={`art-panel art-panel--${project.pattern}`}>

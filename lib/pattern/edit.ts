@@ -96,3 +96,37 @@ export function moveSelection<T>(cells: T[], mask: boolean[], cols: number, rows
   })
   return { cells: out, mask: moved }
 }
+
+/**
+ * Turns the selected cells a quarter turn (1 = clockwise, -1 = anticlockwise) around the
+ * middle of the selection. Like moving: the cells they leave become `empty`, empty cells in
+ * the selection are see-through, and the turned shape is nudged back inside the grid when it
+ * would stick out (anything still outside a too-small grid is dropped).
+ */
+export function rotateSelection<T>(cells: T[], mask: boolean[], cols: number, rows: number, dir: 1 | -1, empty: T) {
+  let minC = cols, maxC = -1, minR = rows, maxR = -1
+  mask.forEach((m, i) => {
+    if (!m) return
+    const r = Math.floor(i / cols), c = i % cols
+    minC = Math.min(minC, c); maxC = Math.max(maxC, c); minR = Math.min(minR, r); maxR = Math.max(maxR, r)
+  })
+  if (maxC < 0) return { cells, mask }
+  const w = maxC - minC + 1, h = maxR - minR + 1
+  // The turned box is h wide and w tall, kept on the same centre (trunc so 4 turns land back in place).
+  const ox = Math.max(0, Math.min(cols - h, minC + Math.trunc((w - h) / 2)))
+  const oy = Math.max(0, Math.min(rows - w, minR + Math.trunc((h - w) / 2)))
+  const out = cells.slice()
+  const turned = new Array<boolean>(cells.length).fill(false)
+  mask.forEach((m, i) => { if (m) out[i] = empty })
+  mask.forEach((m, i) => {
+    if (!m) return
+    const x = (i % cols) - minC, y = Math.floor(i / cols) - minR
+    const nx = dir === 1 ? h - 1 - y : y
+    const ny = dir === 1 ? x : w - 1 - x
+    const c = ox + nx, r = oy + ny
+    if (r < 0 || c < 0 || r >= rows || c >= cols) return
+    turned[r * cols + c] = true
+    if (cells[i] !== empty) out[r * cols + c] = cells[i]
+  })
+  return { cells: out, mask: turned }
+}

@@ -29,6 +29,9 @@ function useProjectsStore() {
   const [category, setCategory] = useState("All categories")
   const [view, setView] = useState<"grid" | "list">("grid")
   const [selectedKeys, setSelectedKeys] = useState<Array<number | string>>([])
+  // Stock check: which projects to check and where its Back link goes. Kept apart from the
+  // list's tick boxes, so checking stock never leaves projects ticked on the list.
+  const [stockCheck, setStockCheck] = useState<{ keys: Array<number | string>; back: { href: string; label: string } } | null>(null)
   const [notice, setNotice] = useState(true)
 
   useEffect(() => {
@@ -140,6 +143,8 @@ function useProjectsStore() {
         category_id: categoryId,
         status: toDbStatus(project.status),
         image_url: picture.image,
+        // Always record when it was made: the project list is sorted newest first by this.
+        created_at: new Date().toISOString(),
         ...(includeThumb ? { image_thumb: picture.thumb } : {}),
       }).select("id").single())
       if (error) throw error
@@ -287,6 +292,27 @@ function useProjectsStore() {
     }
   }
 
+  /** Replaces just the project's picture (e.g. with a picture of its bead pattern). */
+  async function updateProjectPicture(project: Project, image: string): Promise<boolean> {
+    if (!project.id) return false
+    try {
+      const picture = await preparePicture(image)
+      const { data: updated, error } = await withoutThumbIfMissing((includeThumb) => supabase.from("project")
+        .update({ image_url: picture.image, ...(includeThumb ? { image_thumb: picture.thumb } : {}) })
+        .eq("id", project.id!)
+        .select("id")
+        .maybeSingle())
+      if (error) throw error
+      if (!updated) throw new Error(RLS_HINT)
+      patchProject(project.id, { image: picture.image ?? undefined, thumb: picture.thumb ?? undefined, hasImage: true })
+      toast.success("Project picture updated", { description: "It now shows the bead pattern." })
+      return true
+    } catch (err) {
+      toast.error("Couldn't update the picture", { description: errorMessage(err) })
+      return false
+    }
+  }
+
   async function updateProjectRecipe(project: Project, recipe: RecipeRow[]): Promise<boolean> {
     if (!project.id) return false
     try {
@@ -349,8 +375,9 @@ function useProjectsStore() {
     categoryItems, setCategoryItems: setCategoryItems as Dispatch<SetStateAction<CategoryItem[]>>,
     statusFilter, setStatusFilter, query, setQuery, category, setCategory,
     view, setView, selectedKeys, setSelectedKeys, notice, setNotice,
+    stockCheck, setStockCheck,
     createProject, deleteProject, updateProjectStatus, completeProject,
-    updateProjectDetails, updateProjectRecipe, loadProjectImage,
+    updateProjectDetails, updateProjectRecipe, loadProjectImage, updateProjectPicture,
     saveCategoryChanges, addCategory, deleteCategory,
   }
 }

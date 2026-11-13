@@ -16,21 +16,40 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
-function draw(img: HTMLImageElement, maxSide: number) {
+function draw(img: HTMLImageElement, maxSide: number, background: string | null = "#ffffff") {
   const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight))
   const canvas = document.createElement("canvas")
   canvas.width = Math.max(1, Math.round(img.naturalWidth * scale))
   canvas.height = Math.max(1, Math.round(img.naturalHeight * scale))
   const ctx = canvas.getContext("2d")!
-  ctx.fillStyle = "#ffffff" // transparent areas become white, not black
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  if (background) {
+    ctx.fillStyle = background // transparent areas become white, not black
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+  }
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-  return { canvas, scaled: scale < 1 }
+  return { canvas, ctx, scaled: scale < 1 }
 }
 
-/** Small JPEG for project cards (roughly 20–80 KB). */
+/** True if any pixel is (partly) see-through. */
+function hasTransparency(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  const data = ctx.getImageData(0, 0, w, h).data
+  for (let i = 3; i < data.length; i += 4) if (data[i] < 255) return true
+  return false
+}
+
+/**
+ * Small picture for project cards (roughly 20–80 KB). Pictures with see-through parts (like a
+ * bead-pattern picture) stay see-through as a PNG; everything else becomes a JPEG.
+ */
 export async function makeThumbnail(src: string, maxSide = 420): Promise<string> {
-  const { canvas } = draw(await loadImage(src), maxSide)
+  const img = await loadImage(src)
+  if (src.startsWith("data:image/png")) {
+    const { canvas, ctx } = draw(img, maxSide, null)
+    try {
+      if (hasTransparency(ctx, canvas.width, canvas.height)) return canvas.toDataURL("image/png")
+    } catch { /* can't read pixels: fall through to JPEG */ }
+  }
+  const { canvas } = draw(img, maxSide)
   return canvas.toDataURL("image/jpeg", 0.75)
 }
 
@@ -41,6 +60,7 @@ export async function makeThumbnail(src: string, maxSide = 420): Promise<string>
 export async function limitPictureSize(src: string, maxSide = 2400): Promise<string> {
   const img = await loadImage(src)
   if (Math.max(img.naturalWidth, img.naturalHeight) <= maxSide) return src
-  const { canvas } = draw(img, maxSide)
-  return src.startsWith("data:image/png") ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.92)
+  const png = src.startsWith("data:image/png")
+  const { canvas } = draw(img, maxSide, png ? null : "#ffffff") // PNGs keep see-through parts
+  return png ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.92)
 }
