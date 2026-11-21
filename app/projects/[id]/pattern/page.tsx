@@ -32,6 +32,8 @@ function useWakeLock(active: boolean) {
   }, [active])
 }
 
+type Box = { c0: number; c1: number; r0: number; r1: number; beads: number[] }
+
 /** Grid line colours: dark (default) for light patterns, light/bright ones for dark patterns. */
 const LINE_COLOURS: { name: string; hex: string | null }[] = [
   { name: "Dark", hex: null },
@@ -54,10 +56,13 @@ export default function BeadModePage() {
   const [loadError, setLoadError] = useState("")
   const [hexByCode, setHexByCode] = useState<Map<string, string>>(new Map())
   const [done, setDone] = useState("")
-  const [currentRow, setCurrentRow] = useState(0)
+  // Box-by-box: `working` is the box you're beading (saved, so you come back to it);
+  // `viewing` is a box you tapped just to look at (never changes progress). Both are box numbers.
+  const [working, setWorking] = useState(0)
+  const [viewing, setViewing] = useState<number | null>(null)
   const [focus, setFocus] = useState<number | null>(null)
   const [tapToMark, setTapToMark] = useState(false)
-  const [rowMode, setRowMode] = useState(true)
+  const [boxMode, setBoxMode] = useState(true)
   const [saveState, setSaveState] = useState<SaveState>("idle")
   const [confirmReset, setConfirmReset] = useState(false)
   // Thick guide lines: block size and where blocks start (null = automatic, centred on the board).
@@ -76,7 +81,7 @@ export default function BeadModePage() {
         if (!stored) { setLoadState("missing"); return }
         setPattern(stored)
         setDone(stored.done)
-        setCurrentRow(Math.min(stored.currentRow, stored.rows - 1))
+        setWorking(Math.max(0, stored.currentRow)) // the saved box number (checked against the boxes below)
         setGuideSize(stored.guideSize)
         setGuideCol(stored.guideColOffset)
         setGuideRow(stored.guideRowOffset)
@@ -110,10 +115,49 @@ export default function BeadModePage() {
     return { total, placed, allPlaced: placed.reduce((s, n) => s + n, 0), beads: total.reduce((s, n) => s + n, 0) }
   }, [legend, done])
 
+  // 5×5 boxes lined up with the thick grid lines, in reading order (left → right, then the next band
+  // down). Boxes with no beads at all are left out. Edge boxes can be smaller than 5×5.
+  const boxes = useMemo(() => {
+    if (!pattern) return [] as Box[]
+    const { cols, rows } = pattern
+    const offset = (n: number, saved: number | null) =>
+      guideSize === 5 && saved !== null ? saved : guideSize === 10 && saved !== null ? saved % 5 : autoGuideOffset(n, 5)
+    const spans = (n: number, off: number) => {
+      const cuts = [0]
+      for (let k = off > 0 ? off : 5; k < n; k += 5) cuts.push(k)
+      cuts.push(n)
+      return cuts.slice(0, -1).map((a, k) => [a, cuts[k + 1]] as const)
+    }
+    const colSpans = spans(cols, offset(cols, guideCol)), rowSpans = spans(rows, offset(rows, guideRow))
+    const list: Box[] = []
+    for (const [r0, r1] of rowSpans) for (const [c0, c1] of colSpans) {
+      const beads: number[] = []
+      for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) if (legend.cells[r * cols + c] >= 0) beads.push(r * cols + c)
+      if (beads.length) list.push({ c0, c1, r0, r1, beads })
+    }
+    return list
+  }, [pattern, legend, guideSize, guideCol, guideRow])
+  const boxDone = (b: Box) => b.beads.every((i) => done[i] === "1")
+  /** Next unfinished box after `from` (wrapping round), or null when every box is done. */
+  const nextUnfinished = (from: number) => {
+    for (let k = 1; k <= boxes.length; k++) {
+      const j = (from + k) % boxes.length
+      if (!boxDone(boxes[j])) return j
+    }
+    return null
+  }
+  // On open (and if the saved box is finished or gone): land on the first unfinished box.
+  const settled = useRef(false)
+  useEffect(() => {
+    if (settled.current || !boxes.length || loadState !== "ready") return
+    settled.current = true
+    if (working >= boxes.length || boxDone(boxes[working])) setWorking(nextUnfinished(boxes.length - 1) ?? 0)
+  }, [boxes, loadState]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Save progress shortly after changes stop.
   const timer = useRef<number | undefined>(undefined)
-  const latest = useRef({ done, currentRow })
-  latest.current = { done, currentRow }
+  const latest = useRef({ done, working })
+  latest.current = { done, working }
   const firstRender = useRef(true)
   useEffect(() => {
     if (firstRender.current || !pattern || readOnly) { firstRender.current = !pattern; return }
@@ -122,14 +166,14 @@ export default function BeadModePage() {
     timer.current = window.setTimeout(async () => {
       setSaveState("saving")
       try {
-        await saveProgress(projectId, latest.current.done, latest.current.currentRow)
+        await saveProgress(projectId, latest.current.done, latest.current.working)
         setSaveState("saved")
       } catch (err) {
         setSaveState("error")
         toast.error("Couldn't save progress", { description: errorMessage(err) })
       }
     }, 800)
-  }, [done, currentRow]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [done, working]) // eslint-disable-line react-hooks/exhaustive-deps
   useUnsavedChangesWarning(saveState === "pending" || saveState === "saving" || saveState === "error")
 
   const guideTimer = useRef<number | undefined>(undefined)
@@ -147,7 +191,7 @@ export default function BeadModePage() {
   function retrySave() {
     window.clearTimeout(timer.current)
     setSaveState("saving")
-    saveProgress(projectId, latest.current.done, latest.current.currentRow)
+    saveProgress(projectId, latest.current.done, latest.current.working)
       .then(() => setSaveState("saved"))
       .catch((err) => { setSaveState("error"); toast.error("Couldn't save progress", { description: errorMessage(err) }) })
   }
@@ -174,6 +218,12 @@ export default function BeadModePage() {
     } finally {
       setFlipping(false)
     }
+  }
+
+  function boxAt(i: number) {
+    if (!pattern) return -1
+    const r = Math.floor(i / pattern.cols), c = i % pattern.cols
+    return boxes.findIndex((b) => c >= b.c0 && c < b.c1 && r >= b.r0 && r < b.r1)
   }
 
   function setCells(indexes: number[], value: "0" | "1") {
@@ -214,16 +264,37 @@ export default function BeadModePage() {
   }
   const totalCells = cols * rows
   const percent = stats.beads ? Math.round((stats.allPlaced / stats.beads) * 100) : 0
-  const rowCells = Array.from({ length: cols }, (_, c) => currentRow * cols + c)
-  const rowTargets = rowCells.filter((i) => (focus === null ? legend.cells[i] >= 0 : legend.cells[i] === focus))
-  const rowDone = rowTargets.length > 0 && rowTargets.every((i) => done[i] === "1")
+  const workingBox = Math.min(working, Math.max(0, boxes.length - 1))
+  const shown = viewing !== null && viewing < boxes.length ? viewing : workingBox
+  const box = boxes[shown] ?? null
+  const isChecking = viewing !== null && viewing !== workingBox
+  const shownDone = box ? boxDone(box) : false
+  const boxesDone = boxes.filter(boxDone).length
+  const targets = box ? box.beads.filter((i) => focus === null || legend.cells[i] === focus) : []
+  const targetsDone = targets.length > 0 && targets.every((i) => done[i] === "1")
+  // Colours in this box, most beads first, e.g. "D4 ×12 · C7 ×8" (how many still to place).
+  const inBox = new Map<number, { n: number; left: number }>()
+  for (const i of box?.beads ?? []) {
+    const k = legend.cells[i], e = inBox.get(k) ?? { n: 0, left: 0 }
+    e.n++; if (done[i] !== "1") e.left++
+    inBox.set(k, e)
+  }
+  const boxColours = [...inBox].sort((a, b) => b[1].n - a[1].n || a[0] - b[0])
 
-  // What's in the current row, left to right, e.g. "D4 ×12 · C7 ×3 · D4 ×5" (handy for placing a row).
-  const runs: { code: number; n: number }[] = []
-  for (const i of rowCells) {
-    const c = legend.cells[i]
-    if (runs.length && runs[runs.length - 1].code === c) runs[runs.length - 1].n++
-    else runs.push({ code: c, n: 1 })
+  function finishBox() {
+    if (!box) return
+    if (focus !== null) { setCells(targets, targetsDone ? "0" : "1"); return } // one colour at a time: no jump
+    if (shownDone) { setCells(box.beads, "0"); setWorking(shown); setViewing(null); return } // "Mark not done": redo it
+    setCells(box.beads, "1")
+    // Jump to the next unfinished box after this one (the done marks above aren't in `done` yet).
+    let next: number | null = null
+    for (let k = 1; k <= boxes.length; k++) {
+      const j = (shown + k) % boxes.length
+      if (j !== shown && !boxDone(boxes[j])) { next = j; break }
+    }
+    setWorking(next ?? shown)
+    setViewing(null)
+    if (next === null) toast.success("Every box is done!", { description: "All beads placed 🎉" })
   }
 
   return (
@@ -232,7 +303,7 @@ export default function BeadModePage() {
         <Link className="back-button" href={`/projects/${projectId}`}>←</Link>
         <div className="bead-mode__title">
           <strong>{project?.name ?? "Bead mode"}</strong>
-          <span>{stats.allPlaced.toLocaleString()} / {stats.beads.toLocaleString()} beads · {percent}%</span>
+          <span>{boxesDone} / {boxes.length} boxes · {stats.allPlaced.toLocaleString()} / {stats.beads.toLocaleString()} beads · {percent}%</span>
         </div>
         <SaveStatus state={saveState} onRetry={retrySave} />
         <div className="bead-mode__progress" aria-hidden="true"><i style={{ width: `${percent}%` }} /></div>
@@ -241,10 +312,10 @@ export default function BeadModePage() {
       <div className="bead-mode__stage">
         <GridCanvas
           cols={cols} rows={rows} cells={legend.cells} colours={legend.colours} codes={legend.codes}
-          focus={focus} done={done} currentRow={rowMode ? currentRow : null} fitKey={projectId} guide={guide}
+          focus={focus} done={done} box={boxMode && box ? box : null} fitKey={projectId} guide={guide}
           onCellTap={(i) => {
             if (tapToMark && !readOnly) { if (legend.cells[i] >= 0) setCells([i], done[i] === "1" ? "0" : "1") }
-            else if (rowMode) setCurrentRow(Math.floor(i / cols))
+            else if (boxMode) { const b = boxAt(i); if (b >= 0) setViewing(b === workingBox ? null : b) }
           }}
         />
       </div>
@@ -252,7 +323,7 @@ export default function BeadModePage() {
       <div className="bead-mode__controls">
         {readOnly && <p className="readonly-note">Completed project · view only</p>}
         <div className="bead-mode__toggles">
-          <button className={rowMode ? "chip chip--on" : "chip"} onClick={() => setRowMode((v) => !v)} type="button">Row by row</button>
+          <button className={boxMode ? "chip chip--on" : "chip"} onClick={() => setBoxMode((v) => !v)} type="button">Box by box</button>
           {!readOnly && (
             <button className={tapToMark ? "chip chip--on" : "chip"} onClick={() => setTapToMark((v) => !v)} type="button">
               {tapToMark ? "Tap marks beads ✓" : "Tap to mark beads"}
@@ -316,37 +387,38 @@ export default function BeadModePage() {
           </div>
         )}
 
-        {rowMode && (
-          <div className={readOnly ? "bead-mode__row bead-mode__row--view" : "bead-mode__row"}>
-            <button aria-label="Previous row" disabled={currentRow === 0} onClick={() => setCurrentRow((r) => Math.max(0, r - 1))} type="button">‹</button>
-            <div>
-              <strong>Row {currentRow + 1}</strong> <span>of {rows}</span>
+        {boxMode && box && (
+          <div className={`bead-mode__box ${isChecking ? "bead-mode__box--checking" : ""} ${readOnly ? "bead-mode__box--view" : ""}`}>
+            <button aria-label="Previous box" disabled={shown === 0} onClick={() => setViewing(shown - 1 === workingBox ? null : shown - 1)} type="button">‹</button>
+            <div className="bead-mode__box-info">
+              <div className="bead-mode__box-title">
+                <strong>Box {shown + 1}</strong> <span>of {boxes.length}</span>
+                {shownDone && <em className="bead-mode__tag bead-mode__tag--done">Done ✓</em>}
+                {isChecking && !readOnly && <em className="bead-mode__tag">Just looking</em>}
+                <span className="bead-mode__box-where">Rows {box.r0 + 1}–{box.r1} · Cols {box.c0 + 1}–{box.c1}</span>
+              </div>
               <p className="bead-mode__runs">
-                {runs.map((run, k) => run.code < 0 ? (
-                  <span key={k} className="bead-mode__gap">gap×{run.n}</span>
-                ) : (
-                  <span key={k} className={focus !== null && run.code !== focus ? "is-dim" : undefined}>
-                    <i className="colour-dot" style={{ backgroundColor: legend.colours[run.code] }} />
-                    {legend.codes[run.code]}×{run.n}
+                {boxColours.map(([k, e]) => (
+                  <span key={k} className={(focus !== null && k !== focus) || e.left === 0 ? "is-dim" : undefined}>
+                    <i className="colour-dot" style={{ backgroundColor: legend.colours[k] }} />
+                    {legend.codes[k]}×{e.n}
                   </span>
                 ))}
               </p>
             </div>
-            {!readOnly && <button
-              className="primary-button"
-              disabled={rowTargets.length === 0}
-              onClick={() => {
-                if (rowDone) { setCells(rowTargets, "0"); return }
-                setCells(rowTargets, "1")
-                if (focus === null && currentRow < rows - 1) setCurrentRow((r) => r + 1)
-              }}
-              type="button"
-            >
-              {rowTargets.length === 0
-                ? focus === null ? "Empty row" : `No ${legend.codes[focus]} in this row`
-                : rowDone ? "Undo" : focus === null ? "Row done ✓" : `${legend.codes[focus]} ×${rowTargets.length} done ✓`}
-            </button>}
-            <button aria-label="Next row" disabled={currentRow >= rows - 1} onClick={() => setCurrentRow((r) => Math.min(rows - 1, r + 1))} type="button">›</button>
+            {!readOnly && (
+              <div className="bead-mode__box-actions">
+                {isChecking && (
+                  <button className="outline-button" onClick={() => setViewing(null)} type="button">Back to my box ({workingBox + 1})</button>
+                )}
+                <button className={shownDone && focus === null ? "outline-button" : "primary-button"} onClick={finishBox} type="button">
+                  {focus !== null
+                    ? targets.length === 0 ? `No ${legend.codes[focus]} here` : targetsDone ? `Undo ${legend.codes[focus]}` : `${legend.codes[focus]} ×${targets.length} done ✓`
+                    : shownDone ? "Mark not done" : boxesDone === boxes.length - 1 ? "Box done ✓" : "Box done ✓ → Next"}
+                </button>
+              </div>
+            )}
+            <button aria-label="Next box" disabled={shown >= boxes.length - 1} onClick={() => setViewing(shown + 1 === workingBox ? null : shown + 1)} type="button">›</button>
           </div>
         )}
 
@@ -373,12 +445,13 @@ export default function BeadModePage() {
       {confirmReset && (
         <ConfirmDialog
           title="Reset progress?"
-          message="All placed beads will be unmarked and you'll start again from row 1."
+          message="All placed beads will be unmarked and you'll start again from box 1."
           confirmLabel="Reset"
           onCancel={() => setConfirmReset(false)}
           onConfirm={() => {
             setDone("0".repeat(totalCells))
-            setCurrentRow(0)
+            setWorking(0)
+            setViewing(null)
             setConfirmReset(false)
           }}
         />

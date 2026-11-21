@@ -19,8 +19,11 @@ export type GridCanvasProps = {
   done?: string
   /** Cells to outline in red (worth checking). */
   flagged?: boolean[]
-  /** Row to outline (0-based). */
-  currentRow?: number | null
+  /**
+   * Block of cells to work on (box-by-box mode): columns c0..c1-1, rows r0..r1-1.
+   * It gets an outline, everything outside it is faded, and the view follows it.
+   */
+  box?: { c0: number; r0: number; c1: number; r1: number } | null
   onCellTap?: (index: number) => void
   /** Thicker guide lines every `size` cells (0 = none), starting after `col`/`row` cells, in `color`. */
   guide?: { size: number; col: number; row: number; color?: string | null }
@@ -59,7 +62,7 @@ function mix(hex: string, amount: number): string {
 }
 
 export function GridCanvas(props: GridCanvasProps) {
-  const { cols, rows, cells, colours, codes, focus = null, done, flagged, currentRow = null, onCellTap, fitKey, painting = false, onPaintStart, onPaint, fullscreenTools,
+  const { cols, rows, cells, colours, codes, focus = null, done, flagged, box = null, onCellTap, fitKey, painting = false, onPaintStart, onPaint, fullscreenTools,
     selecting = false, selection = null, onSelect, onMoveSelection } = props
   // Select tool: the loop being drawn (cell units) and how far the selection is being dragged.
   const [lasso, setLasso] = useState<{ x: number; y: number }[] | null>(null)
@@ -110,16 +113,31 @@ export function GridCanvas(props: GridCanvasProps) {
     })
   }
 
-  // Keep a row in view when it changes (row-by-row mode).
+  // Keep the box in view when it changes (box-by-box mode): zoom in until its codes are readable,
+  // and centre on it when any part of it is off screen. A zoom the person chose is kept otherwise.
+  const boxKey = box ? `${box.c0},${box.r0},${box.c1},${box.r1}` : ""
   useEffect(() => {
-    if (currentRow === null || !size.h) return
+    if (!box || !size.w || !size.h) return
     setView((v) => {
-      const top = v.y + currentRow * v.scale
-      const bottom = top + v.scale
-      if (top >= AXIS + 4 && bottom <= size.h - 4) return v
-      return { ...v, y: AXIS + (size.h - AXIS) / 2 - (currentRow + 0.5) * v.scale }
+      const bw = box.c1 - box.c0, bh = box.r1 - box.r0
+      const fits = Math.min((size.w - AXIS - 24) / bw, (size.h - AXIS - 24) / bh)
+      const scale = v.scale >= 18 ? Math.min(v.scale, fits) : Math.min(MAX_SCALE, Math.max(v.scale, Math.min(26, fits)))
+      const x = v.x + box.c0 * v.scale, y = v.y + box.r0 * v.scale
+      const inView = scale === v.scale && x >= AXIS + 4 && y >= AXIS + 4 && x + bw * scale <= size.w - 4 && y + bh * scale <= size.h - 4
+      if (inView) return v
+      // Centre on the box, but don't scroll past the pattern's edges (no big empty margins).
+      const place = (centre: number, length: number, room: number) => {
+        const want = AXIS + (room - AXIS) / 2 - centre * scale
+        if (length * scale <= room - AXIS - 16) return AXIS + (room - AXIS - length * scale) / 2
+        return Math.min(AXIS + 8, Math.max(room - 8 - length * scale, want))
+      }
+      return {
+        scale,
+        x: place((box.c0 + box.c1) / 2, cols, size.w),
+        y: place((box.r0 + box.r1) / 2, rows, size.h),
+      }
     })
-  }, [currentRow, size.h])
+  }, [boxKey, size.w, size.h]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ------------------------------ drawing ------------------------------ */
   useEffect(() => {
@@ -165,7 +183,8 @@ export function GridCanvas(props: GridCanvasProps) {
           continue
         }
         const isDone = done?.[i] === "1"
-        const dim = focus !== null && p !== focus
+        const outside = box !== null && (c < box.c0 || c >= box.c1 || r < box.r0 || r >= box.r1)
+        const dim = outside || (focus !== null && p !== focus)
         const x = ox + c * s, y = oy + r * s
         ctx.fillStyle = dim ? faded[p] : isDone ? placed[p] : colours[p]
         ctx.fillRect(x, y, s + 0.5, s + 0.5)
@@ -258,11 +277,15 @@ export function GridCanvas(props: GridCanvasProps) {
       }
     }
 
-    // Current row.
-    if (currentRow !== null && currentRow >= 0 && currentRow < rows) {
-      ctx.strokeStyle = "#f2a900"
+    // Current box.
+    if (box) {
+      const bx = ox + box.c0 * s, by = oy + box.r0 * s, bw = (box.c1 - box.c0) * s, bh = (box.r1 - box.r0) * s
+      ctx.lineWidth = 5
+      ctx.strokeStyle = "#ffffff"
+      ctx.strokeRect(bx - 2.5, by - 2.5, bw + 5, bh + 5)
       ctx.lineWidth = 3
-      ctx.strokeRect(ox - 1.5, oy + currentRow * s - 1.5, cols * s + 3, s + 3)
+      ctx.strokeStyle = "#f2a900"
+      ctx.strokeRect(bx - 2.5, by - 2.5, bw + 5, bh + 5)
     }
 
     // Axis numbers.
@@ -276,22 +299,28 @@ export function GridCanvas(props: GridCanvasProps) {
     // First/last numbers are shown too, unless a block-start number sits right next to them.
     const edgeLabel = (n: number, count: number, offset: number) =>
       (n === 1 || n === count) && ![-2, -1, 1, 2].some((d) => blockStart(n + d, offset) && n + d >= 1 && n + d <= count)
+    // The box's own row/column numbers are always shown, in amber.
+    const inBoxCol = (c: number) => box !== null && c >= box.c0 && c < box.c1
+    const inBoxRow = (r: number) => box !== null && r >= box.r0 && r < box.r1
     for (let c = c0; c < c1; c++) {
-      const n = c + 1, start = blockStart(n, guide.col)
-      if (!showAll && !start && !edgeLabel(n, cols, guide.col)) continue
-      if (!showAll && s < 7 && guide.size > 0 && ((n - 1 - guide.col) / guide.size) % 2 === 1) continue // every other block when tiny
-      ctx.fillStyle = start ? "#20251f" : "#9a9f97"
+      const n = c + 1, start = blockStart(n, guide.col), own = inBoxCol(c)
+      if (!own && !showAll && !start && !edgeLabel(n, cols, guide.col)) continue
+      if (!own && !showAll && box !== null && Math.min(Math.abs(c - box.c0), Math.abs(c - (box.c1 - 1))) * s < 16) continue // don't crowd the box's numbers
+      if (!own && !showAll && s < 7 && guide.size > 0 && ((n - 1 - guide.col) / guide.size) % 2 === 1) continue // every other block when tiny
+      if (own && !showAll && c !== box!.c0 && c !== box!.c1 - 1 && s < 16) continue
+      ctx.fillStyle = own ? "#b07a00" : start ? "#20251f" : "#9a9f97"
       ctx.fillText(String(n), ox + c * s + s / 2, AXIS / 2)
     }
     for (let r = r0; r < r1; r++) {
-      const n = r + 1, start = blockStart(n, guide.row)
-      if (!showAll && !start && !edgeLabel(n, rows, guide.row) && r !== currentRow) continue
-      if (!showAll && currentRow !== null && r !== currentRow && Math.abs(r - currentRow) * s < 14) continue // don't crowd the current row's number
-      if (!showAll && s < 7 && r !== currentRow && guide.size > 0 && ((n - 1 - guide.row) / guide.size) % 2 === 1) continue
-      ctx.fillStyle = r === currentRow ? "#b07a00" : start ? "#20251f" : "#9a9f97"
+      const n = r + 1, start = blockStart(n, guide.row), own = inBoxRow(r)
+      if (!own && !showAll && !start && !edgeLabel(n, rows, guide.row)) continue
+      if (!own && !showAll && box !== null && Math.min(Math.abs(r - box.r0), Math.abs(r - (box.r1 - 1))) * s < 14) continue
+      if (!own && !showAll && s < 7 && guide.size > 0 && ((n - 1 - guide.row) / guide.size) % 2 === 1) continue
+      if (own && !showAll && r !== box!.r0 && r !== box!.r1 - 1 && s < 14) continue
+      ctx.fillStyle = own ? "#b07a00" : start ? "#20251f" : "#9a9f97"
       ctx.fillText(String(n), AXIS / 2, oy + r * s + s / 2)
     }
-  }, [view, size, cols, rows, cells, colours, codes, focus, done, flagged, currentRow, guide.size, guide.col, guide.row, guide.color, selection, dragBy, lasso]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [view, size, cols, rows, cells, colours, codes, focus, done, flagged, boxKey, guide.size, guide.col, guide.row, guide.color, selection, dragBy, lasso]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---------------------------- interaction ---------------------------- */
   const pointers = useRef(new Map<number, { x: number; y: number }>())
